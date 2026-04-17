@@ -1,4 +1,4 @@
-# Container Data Augmentation Framework
+# Container Image Augmentation Framework
 
 ## Description
 
