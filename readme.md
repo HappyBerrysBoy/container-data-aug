@@ -20,7 +20,7 @@
 ## TO-DO
 `완료한 내용의 경우: 최상단으로 이동 → 해당 내용 관련 링크 추가 → ☑︎ 마크로 수정`
 - ☑ **역할 분담 상세** - 가급적 FE/BE로만 구성 [Roles](#roles)
-- ◻︎ **기능명세서 작성** - 테이블 형태로 대분류/요구사항ID/기능명/설명/담당자(FE/BE) 명세
+- ☑︎ **기능명세서 작성** - 테이블 형태로 대분류/요구사항ID/기능명/설명/담당자(FE/BE) 명세 [Google Sheet](https://docs.google.com/spreadsheets/d/17DANYS-GZLFTHw2bwCTlRF6p3NuAGPh8ZYi41EiuVQk/edit?usp=sharing)
 - ◻︎ **와이어 프레임** - 레이아웃 이해를 위한 와이어 프레임 그리기
 - ◻︎ **시스템 아키텍처 구조도** - 흐름 파악 및 파이프라인 구조 이해를 위한 아키텍처 설계
 - ◻︎ **ERD** - Database 설계를 위한 초기 구조 구상
