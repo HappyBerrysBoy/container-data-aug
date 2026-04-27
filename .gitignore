@@ -143,3 +143,5 @@ __pypackages__/
 tmp/
 temp/
 *.bak
+
+.claude
