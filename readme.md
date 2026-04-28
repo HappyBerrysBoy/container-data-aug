@@ -33,6 +33,11 @@
 - ☑︎ **시스템 아키텍처 구조도** - 흐름 파악 및 파이프라인 구조 이해를 위한 아키텍처 설계 [Architecture.png](./docs/Architecture.png) by `손원빈`
 - ☑︎ **프레임워크 기본 개념 공부** - Next.js (FE) / FastAPI (BE) 기본 구성 요소 및 개념 이해
 ---
+## Architecture
+![Architecture](./docs/Architecture.png)
+## ERD
+![ERD](./docs/ERD_drawio.png)
+---
 
 ## Roles
 - **송원호** - Frontend
