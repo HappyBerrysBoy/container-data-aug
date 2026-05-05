@@ -8,3 +8,17 @@ export type ProjectSummary = {
   hasLabels: boolean
   createdAtLabel: string
 }
+
+export type AugmentationConfig = {
+  workerCount: number
+  runOcrLabeling: boolean
+  totalImageCount: number
+}
+
+export type AugmentationResult = {
+  totalImageCount: number
+  successCount: number
+  failedCount: number
+  runOcrLabeling: boolean
+  outputFolderLabel: string
+}

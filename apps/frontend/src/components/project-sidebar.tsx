@@ -1,6 +1,7 @@
 import {
   Boxes,
   FolderOpen,
+  LoaderCircle,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
@@ -22,6 +23,7 @@ type ProjectSidebarProps = {
   collapsed: boolean
   projects: ProjectSummary[]
   selectedProjectId: string | null
+  processingProjectId: string | null
   onToggleCollapsed: () => void
   onCreateProject: () => void
   onSelectProject: (projectId: string) => void
@@ -31,6 +33,7 @@ export function ProjectSidebar({
   collapsed,
   projects,
   selectedProjectId,
+  processingProjectId,
   onToggleCollapsed,
   onCreateProject,
   onSelectProject,
@@ -126,21 +129,33 @@ export function ProjectSidebar({
           <div className="grid gap-1">
             {projects.map((project) => {
               const selected = project.id === selectedProjectId
+              const processing = project.id === processingProjectId
 
               if (collapsed) {
                 return (
                   <SidebarIconButton
                     key={project.id}
-                    label={project.name}
+                    label={
+                      processing
+                        ? `${project.name} 증강 적용 중`
+                        : project.name
+                    }
                     onClick={() => onSelectProject(project.id)}
                     className={cn(
                       "w-full",
                       selected && "bg-accent text-accent-foreground"
                     )}
                   >
-                    <span className="text-xs font-semibold">
-                      {project.name.slice(0, 1)}
-                    </span>
+                    {processing ? (
+                      <LoaderCircle
+                        className="size-4 animate-spin"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <span className="text-xs font-semibold">
+                        {project.name.slice(0, 1)}
+                      </span>
+                    )}
                   </SidebarIconButton>
                 )
               }
@@ -156,7 +171,20 @@ export function ProjectSidebar({
                   aria-current={selected ? "page" : undefined}
                   onClick={() => onSelectProject(project.id)}
                 >
-                  <span className="truncate font-medium">{project.name}</span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate font-medium">
+                      {project.name}
+                    </span>
+                    {processing && (
+                      <>
+                        <LoaderCircle
+                          className="size-3.5 shrink-0 animate-spin text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                        <span className="sr-only">증강 적용 중</span>
+                      </>
+                    )}
+                  </span>
                   <span className="mt-1 truncate text-xs text-muted-foreground">
                     {project.fileCount.toLocaleString("ko-KR")}개 ·{" "}
                     {project.totalSizeLabel}

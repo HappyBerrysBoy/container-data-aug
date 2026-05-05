@@ -15,9 +15,13 @@ import type { ProjectSummary } from "@/types/project"
 
 type ProjectDetailViewProps = {
   project: ProjectSummary
+  onStartAugmentation: () => void
 }
 
-export function ProjectDetailView({ project }: ProjectDetailViewProps) {
+export function ProjectDetailView({
+  project,
+  onStartAugmentation,
+}: ProjectDetailViewProps) {
   return (
     <section className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-6 py-10 md:px-10">
       <div className="mb-8">
@@ -58,7 +62,7 @@ export function ProjectDetailView({ project }: ProjectDetailViewProps) {
               <Trash2 className="size-4" aria-hidden="true" />
               이미지 삭제
             </Button>
-            <Button type="button">
+            <Button type="button" onClick={onStartAugmentation}>
               <Play className="size-4" aria-hidden="true" />
               증강 프로세스 시작
             </Button>
