@@ -18,19 +18,19 @@
 
 ## Commands
 
-- Dev: `cd apps/frontend && pnpm dev`
-- Lint: `cd apps/frontend && pnpm lint`
-- Build: `cd apps/frontend && pnpm build`
+- Dev: `cd frontend && pnpm dev`
+- Lint: `cd frontend && pnpm lint`
+- Build: `cd frontend && pnpm build`
 
 ## Project Structure
 
-- `apps/frontend/src/components/app-shell.tsx`: 전체 화면 상태, 더미 증강 진행, 결과 데이터 계산
-- `apps/frontend/src/components/views/project-detail-view.tsx`: 증강 옵션 모달 진입 버튼
-- `apps/frontend/src/components/views/augmentation-progress-view.tsx`: 5단계 증강 수행 화면
-- `apps/frontend/src/components/views/augmentation-result-view.tsx`: 6단계 결과 시각화 화면
-- `apps/frontend/src/components/augmentation-options-dialog.tsx`: 4단계 증강 옵션 설정 모달
-- `apps/frontend/src/components/ui/*`: 필요한 최소 shadcn 스타일 UI primitive
-- `apps/frontend/src/types/project.ts`: 프로젝트, 증강 설정, 결과 타입
+- `frontend/src/components/app-shell.tsx`: 전체 화면 상태, 더미 증강 진행, 결과 데이터 계산
+- `frontend/src/components/views/project-detail-view.tsx`: 증강 옵션 모달 진입 버튼
+- `frontend/src/components/views/augmentation-progress-view.tsx`: 5단계 증강 수행 화면
+- `frontend/src/components/views/augmentation-result-view.tsx`: 6단계 결과 시각화 화면
+- `frontend/src/components/augmentation-options-dialog.tsx`: 4단계 증강 옵션 설정 모달
+- `frontend/src/components/ui/*`: 필요한 최소 shadcn 스타일 UI primitive
+- `frontend/src/types/project.ts`: 프로젝트, 증강 설정, 결과 타입
 
 ## Code Style
 
