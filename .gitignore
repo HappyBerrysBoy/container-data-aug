@@ -130,6 +130,9 @@ coverage.xml
 .pdm-python
 __pypackages__/
 
+# Backend MVP runtime state
+backend/data/app_state.json
+
 # =========================
 # Docker
 # =========================
