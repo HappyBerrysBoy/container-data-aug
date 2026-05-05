@@ -2,13 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react"
 
+import { AugmentationOptionsDialog } from "@/components/augmentation-options-dialog"
 import { ProjectSidebar } from "@/components/project-sidebar"
+import { AugmentationProgressView } from "@/components/views/augmentation-progress-view"
+import { AugmentationResultView } from "@/components/views/augmentation-result-view"
 import { CreateProjectView } from "@/components/views/create-project-view"
 import { EmptyProjectView } from "@/components/views/empty-project-view"
 import { ProjectDetailView } from "@/components/views/project-detail-view"
-import type { ProjectSummary } from "@/types/project"
+import type {
+  AugmentationConfig,
+  AugmentationResult,
+  ProjectSummary,
+} from "@/types/project"
 
-type ViewMode = "empty" | "create" | "detail"
+type ViewMode = "empty" | "create" | "detail" | "augmenting" | "result"
 
 const MOCK_FOLDER = {
   name: "container-images-2026",
@@ -29,6 +36,12 @@ export function AppShell() {
   )
   const [projectName, setProjectName] = useState("")
   const [projectDescription, setProjectDescription] = useState("")
+  const [optionsDialogOpen, setOptionsDialogOpen] = useState(false)
+  const [augmentationConfig, setAugmentationConfig] =
+    useState<AugmentationConfig | null>(null)
+  const [augmentationProgress, setAugmentationProgress] = useState(0)
+  const [augmentationResult, setAugmentationResult] =
+    useState<AugmentationResult | null>(null)
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
@@ -46,6 +59,43 @@ export function AppShell() {
       mediaQuery.removeEventListener("change", syncSidebarToViewport)
     }
   }, [])
+
+  useEffect(() => {
+    if (viewMode !== "augmenting" || !augmentationConfig) {
+      return
+    }
+
+    if (augmentationProgress >= 100) {
+      const completionTimer = window.setTimeout(() => {
+        setAugmentationResult(
+          createAugmentationResult(
+            augmentationConfig,
+            selectedProject?.folderName ?? "project"
+          )
+        )
+        setViewMode("result")
+      }, 300)
+
+      return () => {
+        window.clearTimeout(completionTimer)
+      }
+    }
+
+    const progressTimer = window.setTimeout(() => {
+      setAugmentationProgress((currentProgress) =>
+        Math.min(100, currentProgress + 5)
+      )
+    }, 300)
+
+    return () => {
+      window.clearTimeout(progressTimer)
+    }
+  }, [
+    augmentationConfig,
+    augmentationProgress,
+    selectedProject?.folderName,
+    viewMode,
+  ])
 
   function openCreateProject() {
     setSelectedFolder(null)
@@ -83,12 +133,53 @@ export function AppShell() {
     setViewMode("detail")
   }
 
+  function startAugmentation(config: AugmentationConfig) {
+    setOptionsDialogOpen(false)
+    setAugmentationConfig(config)
+    setAugmentationResult(null)
+    setAugmentationProgress(0)
+    setViewMode("augmenting")
+  }
+
+  function cancelAugmentation() {
+    setAugmentationConfig(null)
+    setAugmentationProgress(0)
+    setViewMode("detail")
+  }
+
+  function backToProjectDetail() {
+    setAugmentationConfig(null)
+    setAugmentationProgress(0)
+    setViewMode("detail")
+  }
+
+  const expectedFailedCount = augmentationConfig
+    ? calculateFailedCount(augmentationConfig.totalImageCount)
+    : 0
+  const processedCount = augmentationConfig
+    ? Math.min(
+        augmentationConfig.totalImageCount,
+        Math.round(
+          (augmentationConfig.totalImageCount * augmentationProgress) / 100
+        )
+      )
+    : 0
+  const failedCount = augmentationConfig
+    ? Math.min(
+        processedCount,
+        Math.round((expectedFailedCount * augmentationProgress) / 100)
+      )
+    : 0
+
   return (
     <div className="flex h-dvh overflow-hidden bg-background text-foreground">
       <ProjectSidebar
         collapsed={collapsed}
         projects={projects}
         selectedProjectId={selectedProjectId}
+        processingProjectId={
+          viewMode === "augmenting" ? selectedProjectId : null
+        }
         onToggleCollapsed={() => setCollapsed((current) => !current)}
         onCreateProject={openCreateProject}
         onSelectProject={selectProject}
@@ -112,9 +203,57 @@ export function AppShell() {
         )}
 
         {viewMode === "detail" && selectedProject && (
-          <ProjectDetailView project={selectedProject} />
+          <ProjectDetailView
+            project={selectedProject}
+            onStartAugmentation={() => setOptionsDialogOpen(true)}
+          />
+        )}
+
+        {viewMode === "augmenting" && selectedProject && augmentationConfig && (
+          <AugmentationProgressView
+            project={selectedProject}
+            config={augmentationConfig}
+            progress={augmentationProgress}
+            processedCount={processedCount}
+            failedCount={failedCount}
+            onCancel={cancelAugmentation}
+          />
+        )}
+
+        {viewMode === "result" && selectedProject && augmentationResult && (
+          <AugmentationResultView
+            project={selectedProject}
+            result={augmentationResult}
+            onBackToDetail={backToProjectDetail}
+          />
         )}
       </main>
+
+      <AugmentationOptionsDialog
+        open={optionsDialogOpen}
+        project={selectedProject}
+        onOpenChange={setOptionsDialogOpen}
+        onStart={startAugmentation}
+      />
     </div>
   )
+}
+
+function calculateFailedCount(totalImageCount: number) {
+  return Math.round(totalImageCount * 0.04)
+}
+
+function createAugmentationResult(
+  config: AugmentationConfig,
+  folderName: string
+): AugmentationResult {
+  const failedCount = calculateFailedCount(config.totalImageCount)
+
+  return {
+    totalImageCount: config.totalImageCount,
+    successCount: config.totalImageCount - failedCount,
+    failedCount,
+    runOcrLabeling: config.runOcrLabeling,
+    outputFolderLabel: `./outputs/${folderName}-augmented`,
+  }
 }
