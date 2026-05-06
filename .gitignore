@@ -144,4 +144,4 @@ tmp/
 temp/
 *.bak
 
-.claude
+.claude/settings.local.json
