@@ -39,7 +39,7 @@ lerna-debug.log*
 *.key
 
 # =========================
-# Node / Next.js (apps/frontend)
+# Node / Next.js (frontend)
 # =========================
 node_modules/
 .pnp
@@ -71,7 +71,7 @@ next-env.d.ts
 .vercel
 
 # =========================
-# Python / FastAPI (apps/backend)
+# Python / FastAPI (backend)
 # =========================
 __pycache__/
 *.py[cod]
@@ -144,4 +144,4 @@ tmp/
 temp/
 *.bak
 
-.claude
+.claude/settings.local.json

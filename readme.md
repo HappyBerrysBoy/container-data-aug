@@ -19,13 +19,19 @@
 
 ## TO-DO
 `완료한 내용의 경우: 해당 내용 관련 링크 추가 → ☑︎ 마크로 수정`
+### 5주차 진행사항
+- ☑ **UI Mockup** - Mockup 형태로 frontend ui 구현 by `손원빈`
+- ☑ **API spec 작성** - FE-BE 간 API contract 명세 (MVP) [API-MVP-spec.md](./docs/API-MVP-spec.md) by `손원빈`
+- ◻ **기능명세서 담당자 세부 사항 추가** - 각 기능별 담당 인원 추가 기재
+- ◻ **셔플 기능 구현** - 셔플 기능 모듈 형태로 구현
+- ◻ **FastAPI interface 구현** - FastAPI 기반 전체 
+---
 ### 4주차 진행사항
 - ☑ **기능명세서/ERD 수정** - 셔플 기능 추가 및 ERD 컨벤션 통일 [ERD.png](#erd) by `최규문`, `손원빈`
 - ☑ **프로젝트 기본 구성** - monorepo 형태로 프로젝트 구조 구성 by `손원빈`
 - ☑ **frontend 기본 레이아웃 구성** - 전체적인 기본 레이아웃 초기 구성 (shadcn 기반) [#1](./docs/screenshots/fe1.png)∙[#2](./docs/screenshots/fe2.png)∙[#3](./docs/screenshots/fe3.png)  by `손원빈`
 - ☑ **backend 기본 구성 세팅** - 파이썬 환경/FastAPI/PostGRE 환경 초기 세팅 by `서준일`
-- ◻︎ **셔플 기능 구현** - 프레임워크 핵심 기능인 셔플 기능 구현 및 테스트
-- ◻︎ **OCR 모델 평가** - 제공된 데이터셋에 대한 OCR 모델 성능 테스트
+- ☑︎ **OCR 모델 평가** - 제공된 데이터셋에 대한 OCR 모델 성능 테스트 by `송원호`, `서준일`
 ---
 ### 1~3주차 진행사항
 - ☑ **역할 분담 상세** - 가급적 FE/BE로만 구성 [Roles](#roles)
