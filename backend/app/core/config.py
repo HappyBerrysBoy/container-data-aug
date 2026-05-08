@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     )
     database_url: str = Field(
         default="postgresql://postgres:postgres@localhost:5432/container_data_aug")
+    storage_backend: str = Field(default="json")
+    # 나중에 sql로 다시 변경
     @property
     def parsed_cors_origins(self) -> list[str]:
         return [
