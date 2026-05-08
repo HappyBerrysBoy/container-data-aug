@@ -12,11 +12,12 @@ import { useState, type ReactNode } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import type { AugmentationResult, ProjectSummary } from "@/types/project"
+import type { MockAugmentationResult, ProjectSummary } from "@/types/project"
 
 type AugmentationResultViewProps = {
   project: ProjectSummary
-  result: AugmentationResult
+  /** Mock result, will be replaced with backend AugmentationResult in task [5]. */
+  result: MockAugmentationResult
   onBackToDetail: () => void
 }
 

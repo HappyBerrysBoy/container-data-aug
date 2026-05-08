@@ -11,7 +11,7 @@ import { EmptyProjectView } from "@/components/views/empty-project-view"
 import { ProjectDetailView } from "@/components/views/project-detail-view"
 import type {
   AugmentationConfig,
-  AugmentationResult,
+  MockAugmentationResult,
   ProjectSummary,
 } from "@/types/project"
 
@@ -41,7 +41,7 @@ export function AppShell() {
     useState<AugmentationConfig | null>(null)
   const [augmentationProgress, setAugmentationProgress] = useState(0)
   const [augmentationResult, setAugmentationResult] =
-    useState<AugmentationResult | null>(null)
+    useState<MockAugmentationResult | null>(null)
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
@@ -246,7 +246,7 @@ function calculateFailedCount(totalImageCount: number) {
 function createAugmentationResult(
   config: AugmentationConfig,
   folderName: string
-): AugmentationResult {
+): MockAugmentationResult {
   const failedCount = calculateFailedCount(config.totalImageCount)
 
   return {
