@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     cors_origins: str = Field(
         default="http://localhost:3000,http://127.0.0.1:3000"
     )
-
+    database_url: str = Field(
+        default="postgresql://postgres:postgres@localhost:5432/container_data_aug")
     @property
     def parsed_cors_origins(self) -> list[str]:
         return [
