@@ -19,12 +19,17 @@
 
 ## TO-DO
 `완료한 내용의 경우: 해당 내용 관련 링크 추가 → ☑︎ 마크로 수정`
+### 6주차 진행사항
+- ◻ **Shuffle 구현** - 셔플 기능 구현
+- ◻ **Backend에 셔플 기능 병합** - 전체적으로 동작가능한 벡엔드 구성
+- ◻ **FE-BE 통신 테스트** - 프론트엔드-백엔드 API 통신 테스트
+- ◻ **DB 구성** - Docker compose로 구성
+---
 ### 5주차 진행사항
 - ☑ **UI Mockup** - Mockup 형태로 frontend ui 구현 by `손원빈`
 - ☑ **API spec 작성** - FE-BE 간 API contract 명세 (MVP) [API-MVP-spec.md](./docs/API-MVP-spec.md) by `손원빈`
 - ☑ **기능명세서 담당자 세부 사항 추가** - 각 기능별 담당 인원 추가 기재
-- ◻ **FastAPI skeleton 구현** - FastAPI 기반 스켈레톤 구현 [backend-MVP-design.md](./docs/backend-MVP-design-decisions.ko.md)
-- ◻ **셔플 기능 구현** - 셔플 기능 모듈 형태로 구현 [shuffle.py](./backend/app/augmentation/shuffle.py)
+- ☑ **FastAPI skeleton 구현** - FastAPI 기반 스켈레톤 구현 [backend-MVP-design.md](./docs/backend-MVP-design-decisions.ko.md)
 ---
 ### 4주차 진행사항
 - ☑ **기능명세서/ERD 수정** - 셔플 기능 추가 및 ERD 컨벤션 통일 [ERD.png](#erd) by `최규문`, `손원빈`
