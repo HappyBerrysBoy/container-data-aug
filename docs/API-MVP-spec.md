@@ -42,10 +42,13 @@
 - 증강 결과물은 로컬 출력 폴더에 저장한다.
 - 동시에 실행 가능한 증강 작업은 전역 1개다.
 - 프론트엔드는 1초 간격 polling으로 작업 상태를 조회한다.
-- MVP 증강 옵션은 아래 3개만 지원한다:
+- MVP 증강 옵션은 아래 4개만 지원한다:
   - `workerCount`
   - `runOcrLabeling`
+  - `variantsPerImage`
   - `outputFolderName`
+- 하나의 원본 이미지에서 여러 개의 증강 결과물을 생성할 수 있으며, 원본 이미지 1장당 생성할 결과물 수는 `variantsPerImage`로 설정한다.
+- `variantsPerImage`를 생략하면 기본값은 `1`이다.
 
 ## 4. 공통 규약
 
@@ -147,6 +150,7 @@ MVP에서는 별도 `AugmentationConfig` 테이블을 만들지 않고 작업 ro
   "progress": 45,
   "workerCount": 4,
   "runOcrLabeling": true,
+  "variantsPerImage": 3,
   "processedCount": 67,
   "failedCount": 2,
   "totalImageCount": 148,
@@ -166,6 +170,7 @@ MVP에서는 별도 `AugmentationConfig` 테이블을 만들지 않고 작업 ro
 | `progress` | number | yes | 0~100 진행률 |
 | `workerCount` | number | yes | 워커 수 |
 | `runOcrLabeling` | boolean | yes | OCR 라벨링 수행 여부 |
+| `variantsPerImage` | number | yes | 원본 이미지 1장당 생성할 증강 결과물 수 |
 | `processedCount` | number | yes | 처리된 이미지 수 |
 | `failedCount` | number | yes | 실패한 이미지 수 |
 | `totalImageCount` | number | yes | 전체 대상 이미지 수 |
@@ -182,11 +187,19 @@ MVP에서는 별도 `AugmentationConfig` 테이블을 만들지 않고 작업 ro
   "totalImageCount": 148,
   "successCount": 142,
   "failedCount": 6,
+  "variantsPerImage": 3,
+  "generatedImageCount": 426,
   "runOcrLabeling": true,
   "outputFolderPath": "/Users/name/datasets/container-images-augmented",
   "completedAt": "2026-05-05T08:20:00Z"
 }
 ```
+
+결과 집계 기준:
+
+- `totalImageCount`, `successCount`, `failedCount`는 원본 이미지 기준 count다.
+- `generatedImageCount`는 실제 생성된 증강 결과 이미지 파일 수다.
+- 정상 처리된 원본 이미지마다 `variantsPerImage`개의 결과물이 생성되는 것이 기본 동작이다.
 
 ## 7. MVP Endpoints
 
@@ -309,6 +322,7 @@ Request:
 {
   "workerCount": 4,
   "runOcrLabeling": true,
+  "variantsPerImage": 3,
   "outputFolderName": "container-images-augmented"
 }
 ```
@@ -316,6 +330,7 @@ Request:
 Validation:
 
 - `workerCount`는 1 이상이어야 한다.
+- `variantsPerImage`는 1 이상이어야 한다.
 - `outputFolderName`은 비어 있으면 안 된다.
 - 백엔드가 출력 폴더를 생성하거나 쓸 수 있어야 한다.
 
@@ -336,6 +351,7 @@ Response `200` when active task exists:
     "progress": 45,
     "workerCount": 4,
     "runOcrLabeling": true,
+    "variantsPerImage": 3,
     "processedCount": 67,
     "failedCount": 2,
     "totalImageCount": 148,
@@ -405,7 +421,7 @@ Response `200`: `AugmentationResult`
 ### 8.3 증강 시작
 
 1. 사용자가 프로젝트 상세에서 `증강 프로세스 시작`을 누른다.
-2. 옵션 모달에서 `workerCount`, `runOcrLabeling`, `outputFolderName`을 입력한다.
+2. 옵션 모달에서 `workerCount`, `runOcrLabeling`, `variantsPerImage`, `outputFolderName`을 입력한다.
 3. 프론트엔드가 `POST /api/projects/{projectId}/augmentation-tasks`를 호출한다.
 4. 성공하면 task ID를 저장하고 증강 수행 화면으로 이동한다.
 
@@ -420,7 +436,8 @@ Response `200`: `AugmentationResult`
 
 1. 프론트엔드가 `AugmentationResult`를 표시한다.
 2. `outputFolderPath`를 저장 폴더 경로로 보여준다.
-3. MVP에서는 브라우저가 OS 폴더를 직접 열지 않는다.
+3. `generatedImageCount`를 실제 생성된 증강 결과물 수로 보여준다.
+4. MVP에서는 브라우저가 OS 폴더를 직접 열지 않는다.
 
 ## 9. MVP 구현 순서
 
@@ -461,6 +478,7 @@ Response `200`: `AugmentationResult`
 - 실행 중 작업이 있을 때 새 작업 시작은 `409 TASK_ALREADY_RUNNING`을 반환한다.
 - 프론트엔드 polling으로 진행률이 갱신된다.
 - 작업 완료 후 결과 화면에서 전체/성공/실패 수와 출력 폴더 경로를 볼 수 있다.
+- `variantsPerImage`를 2 이상으로 설정하면 원본 이미지 1장당 여러 개의 증강 결과물이 생성된다.
 - 작업 중단 시 상태가 `STOPPED`가 된다.
 - 원본 이미지 파일은 프로젝트 삭제로 삭제되지 않는다.
 
