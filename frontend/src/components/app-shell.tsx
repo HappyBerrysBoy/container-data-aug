@@ -3,39 +3,73 @@
 import { useEffect, useMemo, useState } from "react"
 
 import { AugmentationOptionsDialog } from "@/components/augmentation-options-dialog"
-import { ProjectSidebar } from "@/components/project-sidebar"
+import { ConnectionBanner } from "@/components/connection-banner"
+import {
+  ProjectSidebar,
+  type ProjectListLoadState,
+} from "@/components/project-sidebar"
 import { AugmentationProgressView } from "@/components/views/augmentation-progress-view"
 import { AugmentationResultView } from "@/components/views/augmentation-result-view"
 import { CreateProjectView } from "@/components/views/create-project-view"
 import { EmptyProjectView } from "@/components/views/empty-project-view"
 import { ProjectDetailView } from "@/components/views/project-detail-view"
+import { ApiError, health, projects as projectsApi } from "@/lib/api"
+import { formatBytes, formatDateShort, pathBasename } from "@/lib/format"
 import type {
   AugmentationConfig,
   MockAugmentationResult,
+  Project,
   ProjectSummary,
 } from "@/types/project"
 
 type ViewMode = "empty" | "create" | "detail" | "augmenting" | "result"
 
+/** Backend reachability — drives the top-of-main connection banner. */
+type ConnectionState = "checking" | "connected" | "error"
+
+/**
+ * Mock folder used by the legacy create flow until task [3] swaps in real
+ * `POST /api/projects` calls. Shaped like the backend folder scan response
+ * so the rest of the app speaks one type (`Project`).
+ */
 const MOCK_FOLDER = {
-  name: "container-images-2026",
+  sourceFolderPath: "C:\\mock\\container-images-2026",
   fileCount: 148,
-  totalSizeLabel: "612.4 MB",
+  totalSizeBytes: 642_147_123,
   hasLabels: true,
 }
 
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>("empty")
-  const [projects, setProjects] = useState<ProjectSummary[]>([])
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
-    null
+
+  // Project list — sourced from `GET /api/projects`. Mock-created projects
+  // (until task [3]) are inserted with negative ids to avoid colliding with
+  // backend-assigned positive ids.
+  const [projects, setProjects] = useState<Project[]>([])
+  // Initial value is "loading" so the first effect run does not need to
+  // synchronously reset it — see retryConnection() for the retry path.
+  const [projectListLoadState, setProjectListLoadState] =
+    useState<ProjectListLoadState>("loading")
+
+  // Backend handshake state.
+  const [connectionState, setConnectionState] =
+    useState<ConnectionState>("checking")
+  const [connectionError, setConnectionError] = useState<string | null>(null)
+  const [retrying, setRetrying] = useState(false)
+
+  // Selected project id (backend ids are numbers; mock ids are negative).
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(
+    null,
   )
-  const [selectedFolder, setSelectedFolder] = useState<typeof MOCK_FOLDER | null>(
-    null
-  )
+
+  // Mockup create-project state — lives until task [3].
+  const [selectedFolder, setSelectedFolder] =
+    useState<typeof MOCK_FOLDER | null>(null)
   const [projectName, setProjectName] = useState("")
   const [projectDescription, setProjectDescription] = useState("")
+
+  // Mockup augmentation flow state — lives until task [5].
   const [optionsDialogOpen, setOptionsDialogOpen] = useState(false)
   const [augmentationConfig, setAugmentationConfig] =
     useState<AugmentationConfig | null>(null)
@@ -45,9 +79,75 @@ export function AppShell() {
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
-    [projects, selectedProjectId]
+    [projects, selectedProjectId],
   )
 
+  const selectedProjectSummary = useMemo(
+    () => (selectedProject ? toProjectSummary(selectedProject) : null),
+    [selectedProject],
+  )
+
+  /**
+   * Backend handshake. Runs on mount and re-runs whenever `retryToken`
+   * changes (bumped by retryConnection()).
+   *
+   *   GET /api/health  →  GET /api/projects  →  populate sidebar
+   *
+   * The async work is defined inline as an IIFE so the lint rule
+   * react-hooks/set-state-in-effect can see that every setState call lives
+   * behind an `await` (which moves them out of the synchronous effect body).
+   * AbortSignal handles React Strict Mode's double-mount cleanup in dev.
+   */
+  const [retryToken, setRetryToken] = useState(0)
+  useEffect(() => {
+    const controller = new AbortController()
+    const { signal } = controller
+
+    void (async () => {
+      try {
+        await health.check(signal)
+      } catch (error) {
+        if (signal.aborted) return
+        setConnectionState("error")
+        setProjectListLoadState("idle")
+        setConnectionError(describeConnectionError(error))
+        setRetrying(false)
+        return
+      }
+
+      setConnectionState("connected")
+
+      try {
+        const data = await projectsApi.list(signal)
+        if (signal.aborted) return
+        setProjects(data)
+        setProjectListLoadState("loaded")
+        setConnectionError(null)
+      } catch (error) {
+        if (signal.aborted) return
+        setProjectListLoadState("error")
+        setConnectionError(describeProjectsError(error))
+      } finally {
+        if (!signal.aborted) {
+          setRetrying(false)
+        }
+      }
+    })()
+
+    return () => controller.abort()
+  }, [retryToken])
+
+  function retryConnection() {
+    // Reset the handshake state from the event handler so the effect itself
+    // does not need to call setState synchronously (React 19 lint rule).
+    setRetrying(true)
+    setConnectionState("checking")
+    setConnectionError(null)
+    setProjectListLoadState("loading")
+    setRetryToken((token) => token + 1)
+  }
+
+  // Collapse sidebar on small viewports.
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 640px)")
     const syncSidebarToViewport = () => setCollapsed(mediaQuery.matches)
@@ -60,6 +160,7 @@ export function AppShell() {
     }
   }, [])
 
+  // Mock augmentation progress — to be replaced by 1s polling in task [5].
   useEffect(() => {
     if (viewMode !== "augmenting" || !augmentationConfig) {
       return
@@ -68,10 +169,12 @@ export function AppShell() {
     if (augmentationProgress >= 100) {
       const completionTimer = window.setTimeout(() => {
         setAugmentationResult(
-          createAugmentationResult(
+          createMockAugmentationResult(
             augmentationConfig,
-            selectedProject?.folderName ?? "project"
-          )
+            selectedProject
+              ? pathBasename(selectedProject.sourceFolderPath)
+              : "project",
+          ),
         )
         setViewMode("result")
       }, 300)
@@ -83,7 +186,7 @@ export function AppShell() {
 
     const progressTimer = window.setTimeout(() => {
       setAugmentationProgress((currentProgress) =>
-        Math.min(100, currentProgress + 5)
+        Math.min(100, currentProgress + 5),
       )
     }, 300)
 
@@ -93,7 +196,7 @@ export function AppShell() {
   }, [
     augmentationConfig,
     augmentationProgress,
-    selectedProject?.folderName,
+    selectedProject,
     viewMode,
   ])
 
@@ -104,7 +207,7 @@ export function AppShell() {
     setViewMode("create")
   }
 
-  function selectProject(projectId: string) {
+  function selectProject(projectId: number) {
     setSelectedProjectId(projectId)
     setViewMode("detail")
   }
@@ -114,21 +217,20 @@ export function AppShell() {
       return
     }
 
-    const createdProject: ProjectSummary = {
-      id: `project-${Date.now()}`,
-      name: projectName.trim(),
-      description: projectDescription.trim(),
-      folderName: selectedFolder.name,
+    // Mock-only project. Backend integration arrives in task [3].
+    const createdProject: Project = {
+      id: -Date.now(),
+      title: projectName.trim(),
+      description: projectDescription.trim() || null,
+      sourceFolderPath: selectedFolder.sourceFolderPath,
+      targetSpec: null,
       fileCount: selectedFolder.fileCount,
-      totalSizeLabel: selectedFolder.totalSizeLabel,
+      totalSizeBytes: selectedFolder.totalSizeBytes,
       hasLabels: selectedFolder.hasLabels,
-      createdAtLabel: new Intl.DateTimeFormat("ko-KR", {
-        month: "long",
-        day: "numeric",
-      }).format(new Date()),
+      createdAt: new Date().toISOString(),
     }
 
-    setProjects((currentProjects) => [createdProject, ...currentProjects])
+    setProjects((current) => [createdProject, ...current])
     setSelectedProjectId(createdProject.id)
     setViewMode("detail")
   }
@@ -160,22 +262,26 @@ export function AppShell() {
     ? Math.min(
         augmentationConfig.totalImageCount,
         Math.round(
-          (augmentationConfig.totalImageCount * augmentationProgress) / 100
-        )
+          (augmentationConfig.totalImageCount * augmentationProgress) / 100,
+        ),
       )
     : 0
   const failedCount = augmentationConfig
     ? Math.min(
         processedCount,
-        Math.round((expectedFailedCount * augmentationProgress) / 100)
+        Math.round((expectedFailedCount * augmentationProgress) / 100),
       )
     : 0
+
+  const showConnectionBanner =
+    connectionState === "error" || projectListLoadState === "error"
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background text-foreground">
       <ProjectSidebar
         collapsed={collapsed}
         projects={projects}
+        loadState={projectListLoadState}
         selectedProjectId={selectedProjectId}
         processingProjectId={
           viewMode === "augmenting" ? selectedProjectId : null
@@ -183,16 +289,31 @@ export function AppShell() {
         onToggleCollapsed={() => setCollapsed((current) => !current)}
         onCreateProject={openCreateProject}
         onSelectProject={selectProject}
+        onRetryLoad={retryConnection}
       />
 
       <main className="min-w-0 flex-1 overflow-y-auto bg-zinc-50/70">
+        {showConnectionBanner && connectionError ? (
+          <ConnectionBanner
+            variant={connectionState === "error" ? "error" : "warning"}
+            title={
+              connectionState === "error"
+                ? "백엔드에 연결할 수 없습니다"
+                : "프로젝트 목록을 불러오지 못했습니다"
+            }
+            description={connectionError}
+            onRetry={retryConnection}
+            retrying={retrying}
+          />
+        ) : null}
+
         {viewMode === "empty" && (
           <EmptyProjectView onCreateProject={openCreateProject} />
         )}
 
         {viewMode === "create" && (
           <CreateProjectView
-            folder={selectedFolder}
+            folder={legacyFolderForCreateView(selectedFolder)}
             projectName={projectName}
             projectDescription={projectDescription}
             onChooseFolder={() => setSelectedFolder(MOCK_FOLDER)}
@@ -202,36 +323,40 @@ export function AppShell() {
           />
         )}
 
-        {viewMode === "detail" && selectedProject && (
+        {viewMode === "detail" && selectedProjectSummary && (
           <ProjectDetailView
-            project={selectedProject}
+            project={selectedProjectSummary}
             onStartAugmentation={() => setOptionsDialogOpen(true)}
           />
         )}
 
-        {viewMode === "augmenting" && selectedProject && augmentationConfig && (
-          <AugmentationProgressView
-            project={selectedProject}
-            config={augmentationConfig}
-            progress={augmentationProgress}
-            processedCount={processedCount}
-            failedCount={failedCount}
-            onCancel={cancelAugmentation}
-          />
-        )}
+        {viewMode === "augmenting" &&
+          selectedProjectSummary &&
+          augmentationConfig && (
+            <AugmentationProgressView
+              project={selectedProjectSummary}
+              config={augmentationConfig}
+              progress={augmentationProgress}
+              processedCount={processedCount}
+              failedCount={failedCount}
+              onCancel={cancelAugmentation}
+            />
+          )}
 
-        {viewMode === "result" && selectedProject && augmentationResult && (
-          <AugmentationResultView
-            project={selectedProject}
-            result={augmentationResult}
-            onBackToDetail={backToProjectDetail}
-          />
-        )}
+        {viewMode === "result" &&
+          selectedProjectSummary &&
+          augmentationResult && (
+            <AugmentationResultView
+              project={selectedProjectSummary}
+              result={augmentationResult}
+              onBackToDetail={backToProjectDetail}
+            />
+          )}
       </main>
 
       <AugmentationOptionsDialog
         open={optionsDialogOpen}
-        project={selectedProject}
+        project={selectedProjectSummary}
         onOpenChange={setOptionsDialogOpen}
         onStart={startAugmentation}
       />
@@ -239,13 +364,51 @@ export function AppShell() {
   )
 }
 
+// =============================================================================
+// Helpers
+// =============================================================================
+
+/**
+ * Adapter that converts the backend `Project` shape into the legacy
+ * `ProjectSummary` consumed by the detail / progress / result views.
+ *
+ * Removed in tasks [4]/[5] when those views migrate to backend types.
+ */
+function toProjectSummary(project: Project): ProjectSummary {
+  return {
+    id: String(project.id),
+    name: project.title,
+    description: project.description ?? "",
+    folderName: pathBasename(project.sourceFolderPath) || project.title,
+    fileCount: project.fileCount,
+    totalSizeLabel: formatBytes(project.totalSizeBytes),
+    hasLabels: project.hasLabels,
+    createdAtLabel: formatDateShort(project.createdAt),
+  }
+}
+
+/**
+ * Converts the new MOCK_FOLDER shape (matches backend) into the shape the
+ * legacy CreateProjectView expects. Removed in task [3] when the create form
+ * is rewritten around real folder path input.
+ */
+function legacyFolderForCreateView(folder: typeof MOCK_FOLDER | null) {
+  if (!folder) return null
+  return {
+    name: pathBasename(folder.sourceFolderPath),
+    fileCount: folder.fileCount,
+    totalSizeLabel: formatBytes(folder.totalSizeBytes),
+    hasLabels: folder.hasLabels,
+  }
+}
+
 function calculateFailedCount(totalImageCount: number) {
   return Math.round(totalImageCount * 0.04)
 }
 
-function createAugmentationResult(
+function createMockAugmentationResult(
   config: AugmentationConfig,
-  folderName: string
+  folderName: string,
 ): MockAugmentationResult {
   const failedCount = calculateFailedCount(config.totalImageCount)
 
@@ -256,4 +419,20 @@ function createAugmentationResult(
     runOcrLabeling: config.runOcrLabeling,
     outputFolderLabel: `./outputs/${folderName}-augmented`,
   }
+}
+
+/** Build a user-facing message for a failed `GET /api/health` call. */
+function describeConnectionError(error: unknown): string {
+  if (error instanceof ApiError) {
+    return `백엔드 응답: ${error.status} ${error.message}`
+  }
+  return "localhost:8000에서 백엔드가 실행 중인지 확인해 주세요."
+}
+
+/** Build a user-facing message for a failed `GET /api/projects` call. */
+function describeProjectsError(error: unknown): string {
+  if (error instanceof ApiError) {
+    return `${error.code}: ${error.message}`
+  }
+  return "프로젝트 목록을 가져오는 중 알 수 없는 오류가 발생했습니다."
 }
