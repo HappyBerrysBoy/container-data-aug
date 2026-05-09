@@ -125,7 +125,13 @@ export function AppShell() {
    * Backend handshake. Runs on mount and re-runs whenever `retryToken`
    * changes (bumped by retryConnection()).
    *
-   *   GET /api/health  →  GET /api/projects  →  populate sidebar
+   *   GET /api/health
+   *     → GET /api/projects                    (populate sidebar)
+   *     → GET /api/augmentation-tasks/active   (resume in-flight task)
+   *
+   * If a task is already running on the backend (e.g. user refreshed mid-run
+   * or another tab started one), we hydrate `activeTaskId` and switch to the
+   * augmenting view so the polling effect can pick up where things left off.
    */
   const [retryToken, setRetryToken] = useState(0)
   useEffect(() => {
@@ -156,6 +162,26 @@ export function AppShell() {
         if (signal.aborted) return
         setProjectListLoadState("error")
         setConnectionError(describeProjectsError(error))
+        setRetrying(false)
+        return
+      }
+
+      // Active task recovery (task [6]). Failures here are non-fatal — the
+      // app simply behaves as if no task is running.
+      try {
+        const { task } = await tasksApi.getActive(signal)
+        if (signal.aborted) return
+        if (task) {
+          setActiveTask(task)
+          setActiveTaskId(task.id)
+          setSelectedProjectId(task.projectId)
+          setSelectedProjectDetail(null)
+          setDetailError(null)
+          setAugmentationResult(null)
+          setViewMode("augmenting")
+        }
+      } catch {
+        // Silent — getActive() failure should not block the app.
       } finally {
         if (!signal.aborted) {
           setRetrying(false)
@@ -289,6 +315,17 @@ export function AppShell() {
   }
 
   function selectProject(projectId: number) {
+    // If this project is the one currently being augmented, jump straight
+    // back to the live progress view instead of the static detail view.
+    // Lets users tab away to peek at other projects without losing their
+    // place in the running task. Also covers the [6] recovery flow when a
+    // user clicks the spinning sidebar item after a refresh.
+    if (activeTaskId !== null && activeTask?.projectId === projectId) {
+      setSelectedProjectId(projectId)
+      setViewMode("augmenting")
+      return
+    }
+
     if (projectId !== selectedProjectId) {
       setSelectedProjectDetail(null)
       setDetailError(null)
