@@ -7,6 +7,7 @@ import {
   ImageIcon,
   Loader2,
   Play,
+  RefreshCw,
   Tags,
   Trash2,
 } from "lucide-react"
@@ -26,8 +27,11 @@ type ProjectDetailViewProps = {
   isStale: boolean
   errorMessage: string | null
   isDeleting: boolean
+  isRescanning: boolean
+  rescanError: string | null
   onStartAugmentation: () => void
   onRequestDelete: () => void
+  onRescan: () => void
 }
 
 const STATUS_LABEL: Record<AugmentationTaskStatus, string> = {
@@ -51,8 +55,11 @@ export function ProjectDetailView({
   isStale,
   errorMessage,
   isDeleting,
+  isRescanning,
+  rescanError,
   onStartAugmentation,
   onRequestDelete,
+  onRescan,
 }: ProjectDetailViewProps) {
   const folderName = pathBasename(project.sourceFolderPath) || project.title
 
@@ -93,6 +100,22 @@ export function ProjectDetailView({
         </div>
       ) : null}
 
+      {rescanError ? (
+        <div
+          role="alert"
+          className="mb-6 flex items-start gap-2.5 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+        >
+          <AlertCircle
+            className="mt-0.5 size-4 shrink-0"
+            aria-hidden="true"
+          />
+          <div>
+            <p className="font-medium">폴더 재스캔에 실패했습니다</p>
+            <p className="mt-1 text-xs opacity-90">{rescanError}</p>
+          </div>
+        </div>
+      ) : null}
+
       <div className="rounded-xl border bg-background">
         <div className="flex flex-col gap-4 p-5 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0">
@@ -116,6 +139,25 @@ export function ProjectDetailView({
             <Button type="button" onClick={onStartAugmentation}>
               <Play className="size-4" aria-hidden="true" />
               증강 프로세스 시작
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onRescan}
+              disabled={isRescanning}
+              title="원본 폴더를 다시 스캔하여 파일 개수와 용량을 갱신합니다"
+            >
+              {isRescanning ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                  스캔 중…
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="size-4" aria-hidden="true" />
+                  폴더 다시 스캔
+                </>
+              )}
             </Button>
             <Button
               type="button"

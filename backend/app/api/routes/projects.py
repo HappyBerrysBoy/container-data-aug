@@ -63,3 +63,16 @@ def delete_project(
 ) -> Response:
     project_service.delete_project(project_id)
     return Response(status_code=204)
+
+
+@router.post(
+    "/{project_id}/rescan",
+    response_model=ProjectResponse,
+    responses=ERROR_RESPONSES,
+)
+def rescan_project(
+    project_id: int,
+    project_service: ProjectService = Depends(get_project_service),
+) -> dict:
+    """Re-scan the source folder and refresh image metadata in place."""
+    return project_service.rescan_project(project_id)

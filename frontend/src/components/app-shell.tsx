@@ -1,7 +1,7 @@
 "use client"
 
 import { Trash2 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { AugmentationOptionsDialog } from "@/components/augmentation-options-dialog"
 import { ConnectionBanner } from "@/components/connection-banner"
@@ -83,6 +83,10 @@ export function AppShell() {
   const [isDeleting, setIsDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  // Rescan flow state (task [9]).
+  const [isRescanning, setIsRescanning] = useState(false)
+  const [rescanError, setRescanError] = useState<string | null>(null)
+
   // Augmentation flow state (task [5]).
   const [optionsDialogOpen, setOptionsDialogOpen] = useState(false)
   const [isStartingAugmentation, setIsStartingAugmentation] = useState(false)
@@ -104,6 +108,14 @@ export function AppShell() {
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
     [projects, selectedProjectId],
   )
+
+  // Mirror `selectedProjectId` in a ref so the polling closure (which is
+  // captured once per `activeTaskId` change) can read the *current* value
+  // without restarting the interval whenever the user navigates around.
+  const selectedProjectIdRef = useRef(selectedProjectId)
+  useEffect(() => {
+    selectedProjectIdRef.current = selectedProjectId
+  }, [selectedProjectId])
 
   // Detail view fallback uses the cached list project when the API fetch
   // hasn't returned yet, so the view always has *something* to show.
@@ -272,22 +284,39 @@ export function AppShell() {
         if (cancelled) return
         setActiveTask(task)
 
+        // Only auto-switch the view when the user is actually focused on
+        // the project that just finished. If they're browsing another
+        // project we silently clear the active state — they can revisit
+        // the result via selectProject() (which routes through the cached
+        // `augmentationResult`) or via the latestTask badge in detail.
+        const userIsWatching =
+          selectedProjectIdRef.current === task.projectId
+
         if (task.status === "DONE") {
           try {
             const result = await tasksApi.result(taskId)
             if (cancelled) return
             setAugmentationResult(result)
+            setActiveTask(null)
             setActiveTaskId(null)
-            setViewMode("result")
+            if (userIsWatching) {
+              setViewMode("result")
+            }
           } catch (error) {
             if (cancelled) return
             setAugmentationActionError(describeResultError(error))
+            setActiveTask(null)
             setActiveTaskId(null)
-            setViewMode("detail")
+            if (userIsWatching) {
+              setViewMode("detail")
+            }
           }
         } else if (task.status === "STOPPED" || task.status === "FAILED") {
+          setActiveTask(null)
           setActiveTaskId(null)
-          setViewMode("detail")
+          if (userIsWatching) {
+            setViewMode("detail")
+          }
         }
       } catch {
         // Transient failure — try again on the next interval tick.
@@ -323,6 +352,15 @@ export function AppShell() {
     if (activeTaskId !== null && activeTask?.projectId === projectId) {
       setSelectedProjectId(projectId)
       setViewMode("augmenting")
+      return
+    }
+
+    // If we have a cached result for this project (because the user was
+    // looking elsewhere when the task finished), show that instead of the
+    // plain detail. The user can dismiss it via "프로젝트 상세로 돌아가기".
+    if (augmentationResult && augmentationResult.projectId === projectId) {
+      setSelectedProjectId(projectId)
+      setViewMode("result")
       return
     }
 
@@ -367,6 +405,52 @@ export function AppShell() {
       setCreateError(describeCreateError(error))
     } finally {
       setIsCreating(false)
+    }
+  }
+
+  /**
+   * Re-scan the source folder of the currently selected project. Updates
+   * `fileCount` / `totalSizeBytes` / `hasLabels` in both the sidebar list
+   * and the detail view without changing other metadata.
+   *
+   * Backend: `POST /api/projects/{id}/rescan`.
+   */
+  async function rescanProject() {
+    if (selectedProjectId === null || isRescanning) return
+
+    const projectId = selectedProjectId
+    setIsRescanning(true)
+    setRescanError(null)
+
+    try {
+      const updated = await projectsApi.rescan(projectId)
+      // Replace the project in the sidebar list.
+      setProjects((current) =>
+        current.map((p) => (p.id === projectId ? updated : p)),
+      )
+      // Merge the new scan numbers into the cached detail (preserve latestTask).
+      setSelectedProjectDetail((current) =>
+        current && current.id === projectId
+          ? {
+              ...current,
+              fileCount: updated.fileCount,
+              totalSizeBytes: updated.totalSizeBytes,
+              hasLabels: updated.hasLabels,
+            }
+          : current,
+      )
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "PROJECT_NOT_FOUND") {
+        // Project was deleted in the meantime — treat like the detail effect.
+        setProjects((current) => current.filter((p) => p.id !== projectId))
+        setSelectedProjectId(null)
+        setSelectedProjectDetail(null)
+        setViewMode("empty")
+        return
+      }
+      setRescanError(describeRescanError(error))
+    } finally {
+      setIsRescanning(false)
     }
   }
 
@@ -541,8 +625,11 @@ export function AppShell() {
             isStale={isLoadingDetail}
             errorMessage={detailError}
             isDeleting={isDeleting}
+            isRescanning={isRescanning}
+            rescanError={rescanError}
             onStartAugmentation={openAugmentationOptions}
             onRequestDelete={requestDeleteProject}
+            onRescan={rescanProject}
           />
         )}
 
@@ -681,6 +768,21 @@ function describeDeleteError(error: unknown): string {
     return `${error.code}: ${error.message}`
   }
   return "프로젝트를 삭제하는 중 오류가 발생했습니다."
+}
+
+/** Build a user-facing message for a failed `POST .../rescan` call. */
+function describeRescanError(error: unknown): string {
+  if (error instanceof ApiError) {
+    switch (error.code) {
+      case "PATH_NOT_FOUND":
+        return "원본 폴더가 더 이상 존재하지 않습니다. 경로를 확인해 주세요."
+      case "PATH_NOT_READABLE":
+        return "원본 폴더를 읽을 수 없습니다. 권한을 확인해 주세요."
+      default:
+        return `${error.code}: ${error.message}`
+    }
+  }
+  return "폴더 재스캔 중 알 수 없는 오류가 발생했습니다."
 }
 
 /** Build a user-facing message for a failed task-start call. */

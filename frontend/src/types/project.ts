@@ -65,6 +65,8 @@ export type AugmentationTask = {
   progress: number
   workerCount: number
   runOcrLabeling: boolean
+  /** Number of augmented variants generated per source image (1 ~ 90). */
+  variantsPerImage: number
   processedCount: number
   failedCount: number
   totalImageCount: number
@@ -80,6 +82,8 @@ export type AugmentationTaskCreateRequest = {
   workerCount: number
   runOcrLabeling: boolean
   outputFolderName: string
+  /** 1 ~ 90 inclusive. Backend rejects out-of-range values with 422. */
+  variantsPerImage: number
 }
 
 /** Result returned from `GET /api/augmentation-tasks/{taskId}/result`. */

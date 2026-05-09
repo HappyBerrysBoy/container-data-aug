@@ -14,6 +14,7 @@
 - 프로젝트 목록 조회
 - 프로젝트 상세 조회
 - 프로젝트 삭제
+- 프로젝트 폴더 재스캔 (이미지 개수/용량/라벨 여부 갱신)
 - 증강 작업 시작
 - 실행 중인 증강 작업 조회
 - 증강 작업 상태 polling
@@ -48,7 +49,10 @@
   - `variantsPerImage`
   - `outputFolderName`
 - 하나의 원본 이미지에서 여러 개의 증강 결과물을 생성할 수 있으며, 원본 이미지 1장당 생성할 결과물 수는 `variantsPerImage`로 설정한다.
+- `variantsPerImage`는 `1` 이상 `90` 이하 범위로 제한한다. 범위 밖은 `422 VALIDATION_ERROR`를 반환한다.
+- 프론트엔드 옵션 모달은 `variantsPerImage`를 `1~90` 범위로 자동 클램프하여 입력한다.
 - `variantsPerImage`를 생략하면 기본값은 `1`이다.
+- 프로젝트 생성 후 원본 폴더의 이미지가 추가/삭제되면 `POST /api/projects/{projectId}/rescan`으로 메타데이터를 갱신할 수 있다. 다른 메타데이터(`title`, `sourceFolderPath` 등)는 보존된다.
 
 ## 4. 공통 규약
 
@@ -308,6 +312,26 @@ MVP 정책:
 
 Response `204`: body 없음
 
+### POST `/api/projects/{projectId}/rescan`
+
+저장된 `sourceFolderPath`를 다시 스캔하여 프로젝트의 이미지 메타데이터를 갱신한다. 사용자가 원본 폴더에 이미지를 추가/삭제한 후 프로젝트를 새로 만들지 않고 카운트만 갱신하고 싶을 때 호출한다.
+
+요청 body 없음.
+
+동작:
+
+- 갱신 대상 필드: `fileCount`, `totalSizeBytes`, `hasLabels`
+- 보존 필드: `id`, `title`, `description`, `sourceFolderPath`, `targetSpec`, `createdAt`
+- 연관된 `tasks` 행은 변경하지 않는다 (latestTask는 별도 조회).
+
+검증:
+
+- `projectId`가 존재해야 한다. 없으면 `404 PROJECT_NOT_FOUND`.
+- 저장된 `sourceFolderPath`가 여전히 디렉터리여야 한다. 없으면 `422 PATH_NOT_FOUND`.
+- 백엔드 프로세스가 `sourceFolderPath`를 읽을 수 있어야 한다. 없으면 `422 PATH_NOT_READABLE`.
+
+Response `200`: 갱신된 `Project`
+
 ## 7.3 Augmentation Tasks
 
 ### POST `/api/projects/{projectId}/augmentation-tasks`
@@ -330,7 +354,7 @@ Request:
 Validation:
 
 - `workerCount`는 1 이상이어야 한다.
-- `variantsPerImage`는 1 이상이어야 한다.
+- `variantsPerImage`는 1 이상 90 이하여야 한다. 범위 밖은 `422 VALIDATION_ERROR`.
 - `outputFolderName`은 비어 있으면 안 된다.
 - 백엔드가 출력 폴더를 생성하거나 쓸 수 있어야 한다.
 
@@ -418,6 +442,13 @@ Response `200`: `AugmentationResult`
 3. 백엔드는 폴더를 스캔하고 프로젝트를 생성한다.
 4. 프론트엔드는 응답을 사이드바 목록과 프로젝트 상세 화면에 반영한다.
 
+### 8.2.1 프로젝트 폴더 재스캔
+
+1. 사용자가 프로젝트 상세 화면의 `폴더 다시 스캔` 버튼을 누른다.
+2. 프론트엔드가 `POST /api/projects/{projectId}/rescan`을 호출한다.
+3. 백엔드는 저장된 `sourceFolderPath`를 다시 스캔하고 프로젝트 메타데이터를 갱신한다.
+4. 프론트엔드는 응답으로 사이드바 목록과 상세 화면의 카운트/용량을 갱신한다. `latestTask`는 보존된다.
+
 ### 8.3 증강 시작
 
 1. 사용자가 프로젝트 상세에서 `증강 프로세스 시작`을 누른다.
@@ -455,6 +486,7 @@ Response `200`: `AugmentationResult`
    - `POST /api/projects`
    - `GET /api/projects/{projectId}`
    - `DELETE /api/projects/{projectId}`
+   - `POST /api/projects/{projectId}/rescan`
 5. 증강 작업 API 구현
    - 전역 작업 lock
    - `POST /api/projects/{projectId}/augmentation-tasks`
@@ -479,8 +511,10 @@ Response `200`: `AugmentationResult`
 - 프론트엔드 polling으로 진행률이 갱신된다.
 - 작업 완료 후 결과 화면에서 전체/성공/실패 수와 출력 폴더 경로를 볼 수 있다.
 - `variantsPerImage`를 2 이상으로 설정하면 원본 이미지 1장당 여러 개의 증강 결과물이 생성된다.
+- `variantsPerImage`에 `91` 이상 또는 `0` 이하 값을 보내면 `422 VALIDATION_ERROR`를 반환한다.
 - 작업 중단 시 상태가 `STOPPED`가 된다.
 - 원본 이미지 파일은 프로젝트 삭제로 삭제되지 않는다.
+- 원본 폴더에 이미지를 추가/삭제한 뒤 `POST /api/projects/{projectId}/rescan`을 호출하면 `fileCount`/`totalSizeBytes`/`hasLabels`가 갱신되고 다른 메타데이터는 보존된다.
 
 ## 11. 다음 단계로 미룰 기능
 
