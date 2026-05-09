@@ -5,6 +5,7 @@ import {
   Cpu,
   FolderOutput,
   ImageIcon,
+  Layers,
   Loader2,
   Tags,
 } from "lucide-react"
@@ -32,6 +33,10 @@ import type {
 const DEFAULT_WORKER_COUNT = 4
 const MIN_WORKER_COUNT = 1
 const MAX_WORKER_COUNT = 8
+
+const DEFAULT_VARIANTS_PER_IMAGE = 10
+const MIN_VARIANTS_PER_IMAGE = 1
+const MAX_VARIANTS_PER_IMAGE = 90
 
 type AugmentationOptionsDialogProps = {
   open: boolean
@@ -103,6 +108,9 @@ function OptionsForm({
   const [outputFolderName, setOutputFolderName] = useState(() =>
     defaultOutputFolderName(project),
   )
+  const [variantsPerImage, setVariantsPerImage] = useState(
+    DEFAULT_VARIANTS_PER_IMAGE,
+  )
 
   function updateWorkerCount(value: string) {
     const parsed = Number(value)
@@ -115,6 +123,26 @@ function OptionsForm({
     )
   }
 
+  function updateVariantsPerImage(value: string) {
+    // Empty input → keep showing the default rather than NaN.
+    if (value.trim() === "") {
+      setVariantsPerImage(DEFAULT_VARIANTS_PER_IMAGE)
+      return
+    }
+    const parsed = Number(value)
+    if (!Number.isFinite(parsed)) {
+      setVariantsPerImage(DEFAULT_VARIANTS_PER_IMAGE)
+      return
+    }
+    // Clamp into the [MIN, MAX] range — anything above 90 snaps to 90,
+    // anything below 1 (including 0 and negatives) snaps to 1.
+    const clamped = Math.min(
+      MAX_VARIANTS_PER_IMAGE,
+      Math.max(MIN_VARIANTS_PER_IMAGE, Math.floor(parsed)),
+    )
+    setVariantsPerImage(clamped)
+  }
+
   function submit() {
     if (!project || isStarting) return
     const trimmed = outputFolderName.trim()
@@ -123,6 +151,7 @@ function OptionsForm({
       workerCount,
       runOcrLabeling,
       outputFolderName: trimmed,
+      variantsPerImage,
     })
   }
 
@@ -170,6 +199,41 @@ function OptionsForm({
             {MIN_WORKER_COUNT}~{MAX_WORKER_COUNT}개 사이에서 선택합니다.
             기본값은 {DEFAULT_WORKER_COUNT}개입니다.
           </p>
+        </div>
+
+        <div className="grid gap-2">
+          <Label htmlFor="variants-per-image">
+            <Layers className="size-4" aria-hidden="true" />
+            이미지 1개당 증강 개수
+          </Label>
+          <Input
+            id="variants-per-image"
+            type="number"
+            min={MIN_VARIANTS_PER_IMAGE}
+            max={MAX_VARIANTS_PER_IMAGE}
+            value={variantsPerImage}
+            onChange={(event) => updateVariantsPerImage(event.target.value)}
+            disabled={isStarting}
+          />
+          <p className="text-xs text-muted-foreground">
+            원본 이미지 한 장당 생성할 증강본 개수입니다.{" "}
+            {MIN_VARIANTS_PER_IMAGE}~{MAX_VARIANTS_PER_IMAGE} 범위 안에서
+            입력하면 그대로, 벗어나면 자동으로 보정됩니다. 기본값은{" "}
+            {DEFAULT_VARIANTS_PER_IMAGE}개입니다.
+          </p>
+          {project ? (
+            <p className="text-xs text-muted-foreground">
+              예상 결과 이미지 수: 약{" "}
+              <span className="font-medium text-foreground">
+                {(project.fileCount * variantsPerImage).toLocaleString(
+                  "ko-KR",
+                )}
+                개
+              </span>{" "}
+              ({project.fileCount.toLocaleString("ko-KR")}장 ×{" "}
+              {variantsPerImage}개)
+            </p>
+          ) : null}
         </div>
 
         <div className="grid gap-2">

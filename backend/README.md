@@ -41,6 +41,7 @@ The file is generated at runtime and stores project metadata, augmentation task 
 - `POST /api/projects`
 - `GET /api/projects/{projectId}`
 - `DELETE /api/projects/{projectId}`
+- `POST /api/projects/{projectId}/rescan`
 - `POST /api/projects/{projectId}/augmentation-tasks`
 - `GET /api/augmentation-tasks/active`
 - `GET /api/augmentation-tasks/{taskId}`

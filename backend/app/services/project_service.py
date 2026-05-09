@@ -79,6 +79,57 @@ class ProjectService:
         latest_task = self.get_latest_task_summary(project_id)
         return {**project, "latestTask": latest_task}
 
+    def rescan_project(self, project_id: int) -> dict[str, Any]:
+        """Re-scan the source folder of an existing project and refresh
+        ``fileCount`` / ``totalSizeBytes`` / ``hasLabels``. Other metadata
+        (title, description, sourceFolderPath, targetSpec, createdAt) is
+        preserved.
+
+        Useful after a user adds or removes images in the source folder
+        without going through the create flow again.
+        """
+        project = self._find_project(project_id)
+
+        source_folder = Path(project["sourceFolderPath"])
+        if not source_folder.exists() or not source_folder.is_dir():
+            raise ApiError(
+                "PATH_NOT_FOUND",
+                "Source folder no longer exists",
+                status_code=422,
+                details={"sourceFolderPath": str(source_folder)},
+            )
+        if not os.access(source_folder, os.R_OK):
+            raise ApiError(
+                "PATH_NOT_READABLE",
+                "Source folder is not readable",
+                status_code=422,
+                details={"sourceFolderPath": str(source_folder)},
+            )
+
+        scan = scan_folder(source_folder)
+
+        def mutator(state: dict[str, Any]) -> dict[str, Any]:
+            for index, candidate in enumerate(state["projects"]):
+                if candidate["id"] == project_id:
+                    updated = {
+                        **candidate,
+                        "fileCount": scan.file_count,
+                        "totalSizeBytes": scan.total_size_bytes,
+                        "hasLabels": scan.has_labels,
+                    }
+                    state["projects"][index] = updated
+                    return updated
+
+            # Project was deleted between the lookup above and this mutation.
+            raise ApiError(
+                "PROJECT_NOT_FOUND",
+                "Project not found",
+                status_code=404,
+                details={"projectId": project_id},
+            )
+
+        return self.store.mutate(mutator)
+
     def require_project(self, project_id: int) -> dict[str, Any]:
         return self._find_project(project_id)
 

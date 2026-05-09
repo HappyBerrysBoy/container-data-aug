@@ -28,6 +28,9 @@ class AugmentationService:
 
         def mutator(state: dict[str, Any]) -> None:
             for task in state["tasks"]:
+                # Backfill fields added after the JSON store was first written
+                # so older task rows still serialize cleanly.
+                task.setdefault("variantsPerImage", 1)
                 if task["status"] in ACTIVE_STATUSES:
                     task["status"] = "FAILED"
                     task["completedAt"] = now
@@ -160,6 +163,14 @@ class AugmentationService:
                 details={"field": "workerCount"},
             )
 
+        if not (1 <= payload.variants_per_image <= 90):
+            raise ApiError(
+                "VALIDATION_ERROR",
+                "variantsPerImage must be between 1 and 90",
+                status_code=422,
+                details={"field": "variantsPerImage"},
+            )
+
         output_folder_name = payload.output_folder_name.strip()
         if not output_folder_name:
             raise ApiError(
@@ -238,6 +249,7 @@ class AugmentationService:
                 "progress": 0,
                 "workerCount": payload.worker_count,
                 "runOcrLabeling": payload.run_ocr_labeling,
+                "variantsPerImage": payload.variants_per_image,
                 "processedCount": 0,
                 "failedCount": 0,
                 "totalImageCount": project["fileCount"],

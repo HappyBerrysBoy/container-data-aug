@@ -131,6 +131,17 @@ export const projects = {
   /** `DELETE /api/projects/{projectId}` — removes metadata only. */
   remove: (projectId: number, signal?: AbortSignal) =>
     request<void>(`/projects/${projectId}`, { method: "DELETE", signal }),
+
+  /**
+   * `POST /api/projects/{projectId}/rescan` — re-scan the source folder and
+   * refresh `fileCount` / `totalSizeBytes` / `hasLabels`. Other metadata is
+   * preserved. Used after the user adds/removes images on disk.
+   */
+  rescan: (projectId: number, signal?: AbortSignal) =>
+    request<Project>(`/projects/${projectId}/rescan`, {
+      method: "POST",
+      signal,
+    }),
 }
 
 /** `/api/augmentation-tasks` — task lifecycle. */
