@@ -1,39 +1,45 @@
-import { Cpu, Images, Play, RotateCcw, XCircle } from "lucide-react"
+"use client"
+
+import { Cpu, Images, Loader2, Play, RotateCcw, XCircle } from "lucide-react"
 import type { ReactNode } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
-import type { AugmentationConfig, ProjectSummary } from "@/types/project"
+import { pathBasename } from "@/lib/format"
+import type { AugmentationTask, Project } from "@/types/project"
 
 type AugmentationProgressViewProps = {
-  project: ProjectSummary
-  config: AugmentationConfig
-  progress: number
-  processedCount: number
-  failedCount: number
-  onCancel: () => void
+  project: Project
+  task: AugmentationTask
+  isStopping: boolean
+  errorMessage: string | null
+  onStop: () => void
 }
 
+/**
+ * Live progress view driven by 1s polling on `GET /api/augmentation-tasks/{id}`.
+ * AppShell owns the polling loop and feeds the latest `task` snapshot here.
+ */
 export function AugmentationProgressView({
   project,
-  config,
-  progress,
-  processedCount,
-  failedCount,
-  onCancel,
+  task,
+  isStopping,
+  errorMessage,
+  onStop,
 }: AugmentationProgressViewProps) {
+  const folderName = pathBasename(project.sourceFolderPath) || project.title
+  const progress = Math.round(task.progress)
+
   return (
     <section className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-6 py-10 md:px-10">
       <div className="mb-8">
-        <p className="text-sm font-medium text-muted-foreground">
-          증강 수행
-        </p>
+        <p className="text-sm font-medium text-muted-foreground">증강 수행</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-          {project.name}
+          {project.title}
         </h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-          더미 워커가 프로젝트 이미지를 처리하는 상태를 표시합니다.
+          백엔드 워커가 프로젝트 이미지를 처리하는 상태를 1초마다 갱신합니다.
         </p>
       </div>
 
@@ -44,15 +50,29 @@ export function AugmentationProgressView({
               <RotateCcw className="size-5" aria-hidden="true" />
             </div>
             <div>
-              <p className="text-sm font-semibold">증강 작업 진행 중</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {project.folderName}
+              <p className="text-sm font-semibold">
+                Task #{task.id} · {task.status}
               </p>
+              <p className="mt-1 text-xs text-muted-foreground">{folderName}</p>
             </div>
           </div>
-          <Button type="button" variant="outline" onClick={onCancel}>
-            <XCircle className="size-4" aria-hidden="true" />
-            중단
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onStop}
+            disabled={isStopping || task.status !== "RUNNING"}
+          >
+            {isStopping ? (
+              <>
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                중단 중…
+              </>
+            ) : (
+              <>
+                <XCircle className="size-4" aria-hidden="true" />
+                중단
+              </>
+            )}
           </Button>
         </div>
 
@@ -71,24 +91,33 @@ export function AugmentationProgressView({
             <ProgressMetric
               icon={<Cpu className="size-4" aria-hidden="true" />}
               label="전체 워커"
-              value={`${config.workerCount}개`}
+              value={`${task.workerCount}개`}
             />
             <ProgressMetric
               icon={<Images className="size-4" aria-hidden="true" />}
               label="전체 이미지"
-              value={`${config.totalImageCount.toLocaleString("ko-KR")}개`}
+              value={`${task.totalImageCount.toLocaleString("ko-KR")}개`}
             />
             <ProgressMetric
               icon={<Play className="size-4" aria-hidden="true" />}
-              label="처리된 이미지"
-              value={`${processedCount.toLocaleString("ko-KR")}개`}
+              label="처리됨"
+              value={`${task.processedCount.toLocaleString("ko-KR")}개`}
             />
             <ProgressMetric
               icon={<XCircle className="size-4" aria-hidden="true" />}
-              label="실패 예상"
-              value={`${failedCount.toLocaleString("ko-KR")}개`}
+              label="실패"
+              value={`${task.failedCount.toLocaleString("ko-KR")}개`}
             />
           </div>
+
+          {errorMessage ? (
+            <div
+              role="alert"
+              className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900"
+            >
+              {errorMessage}
+            </div>
+          ) : null}
         </div>
       </div>
     </section>

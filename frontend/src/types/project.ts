@@ -1,27 +1,25 @@
 /**
- * Domain types.
+ * Domain types — match docs/API-MVP-spec.md §5, §6 exactly.
  *
- * This file holds two groups of types side-by-side during the API migration:
- *
- *  1. Backend types (top of file) — match docs/API-MVP-spec.md §6 exactly.
- *     These are returned by the FastAPI backend and consumed by `lib/api.ts`.
- *
- *  2. Legacy view models (bottom of file) — kept temporarily so the existing
- *     mockup keeps compiling. They will be removed as views migrate to the
- *     backend types in tasks [2]~[5] of the integration plan.
+ * These are the shapes the FastAPI backend returns and accepts. They are
+ * consumed directly by `lib/api.ts` and by every view in the app.
  */
 
 // =============================================================================
-// Backend API types (docs/API-MVP-spec.md §5, §6)
+// Augmentation task lifecycle
 // =============================================================================
 
-/** Augmentation task lifecycle status. */
+/** docs/API-MVP-spec.md §5.1. */
 export type AugmentationTaskStatus =
   | "PENDING"
   | "RUNNING"
   | "STOPPED"
   | "FAILED"
   | "DONE"
+
+// =============================================================================
+// Project
+// =============================================================================
 
 /** Project list item / created project. */
 export type Project = {
@@ -53,6 +51,10 @@ export type ProjectCreateRequest = {
   sourceFolderPath: string
   targetSpec?: string
 }
+
+// =============================================================================
+// Augmentation task
+// =============================================================================
 
 /** Augmentation task as returned by the backend. */
 export type AugmentationTask = {
@@ -91,46 +93,4 @@ export type AugmentationResult = {
   outputFolderPath: string
   /** ISO 8601 timestamp. */
   completedAt: string
-}
-
-// =============================================================================
-// Legacy view models (kept until views migrate to backend types above)
-// =============================================================================
-
-/**
- * @deprecated Use `Project` (backend type) once views are migrated in task [2].
- * Pre-formatted display fields will move into a dedicated formatter helper.
- */
-export type ProjectSummary = {
-  id: string
-  name: string
-  description: string
-  folderName: string
-  fileCount: number
-  totalSizeLabel: string
-  hasLabels: boolean
-  createdAtLabel: string
-}
-
-/**
- * @deprecated Use `AugmentationTaskCreateRequest` once the options dialog is
- * migrated in task [5]. Note `outputFolderName` is required by the backend.
- */
-export type AugmentationConfig = {
-  workerCount: number
-  runOcrLabeling: boolean
-  totalImageCount: number
-}
-
-/**
- * @deprecated Renamed to free up the `AugmentationResult` name for the
- * backend type. Used only by the mockup result view; will be removed in
- * task [5].
- */
-export type MockAugmentationResult = {
-  totalImageCount: number
-  successCount: number
-  failedCount: number
-  runOcrLabeling: boolean
-  outputFolderLabel: string
 }
