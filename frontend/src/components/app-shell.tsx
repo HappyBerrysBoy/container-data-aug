@@ -489,11 +489,11 @@ export function AppShell() {
         projects={projects}
         loadState={projectListLoadState}
         selectedProjectId={selectedProjectId}
-        processingProjectId={
-          viewMode === "augmenting" && activeTask
-            ? activeTask.projectId
-            : null
-        }
+        // The spinner reflects which project is currently being augmented,
+        // independent of which view the user happens to be looking at.
+        // While `activeTaskId` is set, the polling loop is alive — keep
+        // the spinner on so users see it while browsing other projects.
+        processingProjectId={activeTask?.projectId ?? null}
         onToggleCollapsed={() => setCollapsed((current) => !current)}
         onCreateProject={openCreateProject}
         onSelectProject={selectProject}
