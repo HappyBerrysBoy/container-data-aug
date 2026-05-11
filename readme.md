@@ -20,10 +20,11 @@
 ## TO-DO
 `완료한 내용의 경우: 해당 내용 관련 링크 추가 → ☑︎ 마크로 수정`
 ### 6주차 진행사항
-- ☑ **FE-BE 통신 테스트** - 프론트엔드-백엔드 API 통신 테스트 by `송원호`
-- ◻ **Shuffle 구현** - 셔플 기능 구현
+- ☑ **FE-BE 통합** - 프론트엔드-백엔드 API 통신 구현 by `송원호`
+- ☑ **Shuffle 구현** - 셔플 기능 구현 by `최규문`
 - ◻ **Backend에 셔플 기능 병합** - 전체적으로 동작가능한 벡엔드 구성
-- ◻ **DB 구성** - Docker compose로 구성
+- ◻ **DB 구성** - postgres DB 구성 및 세팅 by `서준일`
+- ◻ **Docker Compose** - docker compose 형태로 구조화
 ---
 ### 5주차 진행사항
 - ☑ **UI Mockup** - Mockup 형태로 frontend ui 구현 by `손원빈`
