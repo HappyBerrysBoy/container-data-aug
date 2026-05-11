@@ -48,11 +48,15 @@
   - `runOcrLabeling`
   - `variantsPerImage`
   - `outputFolderName`
-- 하나의 원본 이미지에서 여러 개의 증강 결과물을 생성할 수 있으며, 원본 이미지 1장당 생성할 결과물 수는 `variantsPerImage`로 설정한다.
+- `workerCount`를 생략하면 기본값은 `1`이다.
+- `workerCount` 값은 작업 옵션으로 저장/응답하지만, MVP runner는 실제로 항상 단일 실행 흐름으로 처리한다.
+- 실제 증강 구현에서는 하나의 원본 이미지에서 여러 개의 증강 결과물을 생성할 수 있으며, 원본 이미지 1장당 생성할 결과물 수는 `variantsPerImage`로 설정한다.
+- MVP copy runner는 `variantsPerImage`를 저장만 하고 실제 variant 파일을 생성하지 않는다.
 - `variantsPerImage`는 `1` 이상 `90` 이하 범위로 제한한다. 범위 밖은 `422 VALIDATION_ERROR`를 반환한다.
 - 프론트엔드 옵션 모달은 `variantsPerImage`를 `1~90` 범위로 자동 클램프하여 입력한다.
 - `variantsPerImage`를 생략하면 기본값은 `1`이다.
 - 프로젝트 생성 후 원본 폴더의 이미지가 추가/삭제되면 `POST /api/projects/{projectId}/rescan`으로 메타데이터를 갱신할 수 있다. 다른 메타데이터(`title`, `sourceFolderPath` 등)는 보존된다.
+- 단, 해당 프로젝트에 `PENDING` 또는 `RUNNING` 작업이 있으면 프로젝트 삭제와 재스캔은 `409 PROJECT_HAS_ACTIVE_TASK`로 거부한다.
 
 ## 4. 공통 규약
 
@@ -92,6 +96,7 @@
 | `PATH_NOT_READABLE` | `422` | 로컬 경로 읽기 권한 없음 |
 | `PATH_NOT_WRITABLE` | `422` | 출력 경로 쓰기 권한 없음 |
 | `TASK_ALREADY_RUNNING` | `409` | 이미 실행 중인 전역 작업 존재 |
+| `PROJECT_HAS_ACTIVE_TASK` | `409` | 프로젝트에 실행 중이거나 대기 중인 작업 존재 |
 | `TASK_NOT_RUNNING` | `409` | 중단할 수 없는 작업 상태 |
 | `TASK_NOT_FINISHED` | `409` | 결과 조회 가능한 상태가 아님 |
 | `INTERNAL_SERVER_ERROR` | `500` | 서버 내부 오류 |
@@ -172,9 +177,9 @@ MVP에서는 별도 `AugmentationConfig` 테이블을 만들지 않고 작업 ro
 | `projectId` | number | yes | 프로젝트 ID |
 | `status` | string | yes | `PENDING`, `RUNNING`, `STOPPED`, `FAILED`, `DONE` |
 | `progress` | number | yes | 0~100 진행률 |
-| `workerCount` | number | yes | 워커 수 |
+| `workerCount` | number | yes | 요청된 워커 수. MVP runner의 실제 병렬도는 항상 1 |
 | `runOcrLabeling` | boolean | yes | OCR 라벨링 수행 여부 |
-| `variantsPerImage` | number | yes | 원본 이미지 1장당 생성할 증강 결과물 수 |
+| `variantsPerImage` | number | yes | 원본 이미지 1장당 생성할 증강 결과물 수 옵션 |
 | `processedCount` | number | yes | 처리된 이미지 수 |
 | `failedCount` | number | yes | 실패한 이미지 수 |
 | `totalImageCount` | number | yes | 전체 대상 이미지 수 |
@@ -192,7 +197,7 @@ MVP에서는 별도 `AugmentationConfig` 테이블을 만들지 않고 작업 ro
   "successCount": 142,
   "failedCount": 6,
   "variantsPerImage": 3,
-  "generatedImageCount": 426,
+  "generatedImageCount": 142,
   "runOcrLabeling": true,
   "outputFolderPath": "/Users/name/datasets/container-images-augmented",
   "completedAt": "2026-05-05T08:20:00Z"
@@ -203,7 +208,8 @@ MVP에서는 별도 `AugmentationConfig` 테이블을 만들지 않고 작업 ro
 
 - `totalImageCount`, `successCount`, `failedCount`는 원본 이미지 기준 count다.
 - `generatedImageCount`는 실제 생성된 증강 결과 이미지 파일 수다.
-- 정상 처리된 원본 이미지마다 `variantsPerImage`개의 결과물이 생성되는 것이 기본 동작이다.
+- 실제 증강 구현에서는 정상 처리된 원본 이미지마다 `variantsPerImage`개의 결과물이 생성되는 것이 기본 동작이다.
+- MVP copy runner에서는 원본 이미지 1장당 실제 복사 파일 1개만 생성하므로, `generatedImageCount`는 성공적으로 복사된 파일 수와 같다.
 
 ## 7. MVP Endpoints
 
@@ -309,6 +315,7 @@ MVP 정책:
 - 실제 원본 이미지 파일은 삭제하지 않는다.
 - 증강 결과 폴더도 삭제하지 않는다.
 - DB 또는 로컬 저장소의 프로젝트 메타데이터만 삭제한다.
+- 해당 프로젝트에 `PENDING` 또는 `RUNNING` 작업이 있으면 `409 PROJECT_HAS_ACTIVE_TASK`를 반환한다.
 
 Response `204`: body 없음
 
@@ -327,6 +334,7 @@ Response `204`: body 없음
 검증:
 
 - `projectId`가 존재해야 한다. 없으면 `404 PROJECT_NOT_FOUND`.
+- 해당 프로젝트에 `PENDING` 또는 `RUNNING` 작업이 없어야 한다. 있으면 `409 PROJECT_HAS_ACTIVE_TASK`.
 - 저장된 `sourceFolderPath`가 여전히 디렉터리여야 한다. 없으면 `422 PATH_NOT_FOUND`.
 - 백엔드 프로세스가 `sourceFolderPath`를 읽을 수 있어야 한다. 없으면 `422 PATH_NOT_READABLE`.
 
@@ -353,8 +361,8 @@ Request:
 
 Validation:
 
-- `workerCount`는 1 이상이어야 한다.
-- `variantsPerImage`는 1 이상 90 이하여야 한다. 범위 밖은 `422 VALIDATION_ERROR`.
+- `workerCount`를 생략하면 기본값은 `1`이다. 값을 보내면 1 이상이어야 한다.
+- `variantsPerImage`를 생략하면 기본값은 `1`이다. 값을 보내면 1 이상 90 이하여야 한다. 범위 밖은 `422 VALIDATION_ERROR`.
 - `outputFolderName`은 비어 있으면 안 된다.
 - 백엔드가 출력 폴더를 생성하거나 쓸 수 있어야 한다.
 
@@ -452,7 +460,7 @@ Response `200`: `AugmentationResult`
 ### 8.3 증강 시작
 
 1. 사용자가 프로젝트 상세에서 `증강 프로세스 시작`을 누른다.
-2. 옵션 모달에서 `workerCount`, `runOcrLabeling`, `variantsPerImage`, `outputFolderName`을 입력한다.
+2. 옵션 모달에서 `workerCount`, `runOcrLabeling`, `variantsPerImage`, `outputFolderName`을 입력한다. `workerCount`와 `variantsPerImage`를 생략하면 기본값은 각각 `1`이다.
 3. 프론트엔드가 `POST /api/projects/{projectId}/augmentation-tasks`를 호출한다.
 4. 성공하면 task ID를 저장하고 증강 수행 화면으로 이동한다.
 
@@ -510,10 +518,11 @@ Response `200`: `AugmentationResult`
 - 실행 중 작업이 있을 때 새 작업 시작은 `409 TASK_ALREADY_RUNNING`을 반환한다.
 - 프론트엔드 polling으로 진행률이 갱신된다.
 - 작업 완료 후 결과 화면에서 전체/성공/실패 수와 출력 폴더 경로를 볼 수 있다.
-- `variantsPerImage`를 2 이상으로 설정하면 원본 이미지 1장당 여러 개의 증강 결과물이 생성된다.
+- `variantsPerImage`를 2 이상으로 설정하면 작업 옵션에 저장되고 결과 응답에 반영된다. MVP copy runner에서는 실제 variant 파일을 생성하지 않는다.
 - `variantsPerImage`에 `91` 이상 또는 `0` 이하 값을 보내면 `422 VALIDATION_ERROR`를 반환한다.
 - 작업 중단 시 상태가 `STOPPED`가 된다.
 - 원본 이미지 파일은 프로젝트 삭제로 삭제되지 않는다.
+- active task가 있는 프로젝트를 삭제하거나 재스캔하면 `409 PROJECT_HAS_ACTIVE_TASK`를 반환한다.
 - 원본 폴더에 이미지를 추가/삭제한 뒤 `POST /api/projects/{projectId}/rescan`을 호출하면 `fileCount`/`totalSizeBytes`/`hasLabels`가 갱신되고 다른 메타데이터는 보존된다.
 
 ## 11. 다음 단계로 미룰 기능

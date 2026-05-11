@@ -92,15 +92,15 @@ augmentation_tasks
 | `project_id` | 연결된 프로젝트 ID |
 | `status` | 작업 상태 |
 | `progress` | 진행률. 0~100 |
-| `worker_count` | 작업 워커 수 |
+| `worker_count` | 요청된 작업 워커 수. MVP runner는 값을 저장만 하고 단일 실행 흐름으로 처리 |
 | `run_ocr_labeling` | OCR 라벨링 수행 여부 |
-| `variants_per_image` | 원본 이미지 1장당 생성할 증강 결과 수 |
+| `variants_per_image` | 원본 이미지 1장당 생성할 증강 결과 수 옵션 |
 | `output_folder_name` | 출력 폴더 이름 |
 | `output_folder_path` | 출력 폴더 절대경로 |
 | `processed_count` | 처리된 원본 이미지 수 |
 | `failed_count` | 실패한 원본 이미지 수 |
 | `total_image_count` | 전체 대상 원본 이미지 수 |
-| `generated_image_count` | 실제 생성된 증강 이미지 파일 수 |
+| `generated_image_count` | 실제 디스크에 생성된 증강 이미지 파일 수 |
 | `resource_usage` | 리소스 사용량 정보 |
 | `started_at` | 작업 시작 시간 |
 | `completed_at` | 작업 완료/중단/실패 시간 |
@@ -180,6 +180,9 @@ DONE
 | `outputFolderPath` | `output_folder_path` |
 | `completedAt` | `completed_at` |
 
+`generatedImageCount`는 실제 디스크에 생성된 파일 수다. MVP copy runner는
+`variantsPerImage`가 2 이상이어도 원본 이미지 1장당 복사 파일 1개만 생성한다.
+
 ---
 
 ### 4.2 예시 응답
@@ -192,7 +195,7 @@ DONE
   "successCount": 142,
   "failedCount": 6,
   "variantsPerImage": 3,
-  "generatedImageCount": 426,
+  "generatedImageCount": 142,
   "runOcrLabeling": true,
   "outputFolderPath": "/Users/name/datasets/container-images-augmented",
   "completedAt": "2026-05-05T08:20:00Z"
@@ -216,6 +219,8 @@ project_id BIGINT NOT NULL
 ```
 
 프로젝트가 삭제되면 연결된 증강 작업 메타데이터도 함께 삭제된다.
+단, `PENDING` 또는 `RUNNING` 작업이 있는 프로젝트 삭제는 API 계층에서
+`409 PROJECT_HAS_ACTIVE_TASK`로 거부한다.
 
 단, 실제 로컬 원본 이미지 파일과 증강 결과 폴더는 삭제하지 않는다.
 
@@ -240,12 +245,12 @@ project_id BIGINT NOT NULL
 |---|---|
 | `status` enum check | 허용된 상태값만 저장 |
 | `progress BETWEEN 0 AND 100` | 진행률 범위 제한 |
-| `worker_count >= 1` | 워커 수는 1 이상 |
-| `variants_per_image >= 1` | 원본 1장당 증강 결과 수는 1 이상 |
+| `worker_count >= 1` | 요청 워커 수는 1 이상. MVP runner의 실제 병렬도는 항상 1 |
+| `variants_per_image BETWEEN 1 AND 90` | 원본 1장당 증강 결과 수 옵션은 1 이상 90 이하 |
 | `processed_count >= 0` | 처리 수 음수 불가 |
 | `failed_count >= 0` | 실패 수 음수 불가 |
 | `total_image_count >= 0` | 전체 이미지 수 음수 불가 |
-| `generated_image_count >= 0` | 생성 이미지 수 음수 불가 |
+| `generated_image_count >= 0` | 실제 생성 이미지 수 음수 불가 |
 | `failed_count <= processed_count` | 실패 수는 처리 수보다 클 수 없음 |
 | `processed_count <= total_image_count` | 처리 수는 전체 수보다 클 수 없음 |
 
@@ -403,7 +408,7 @@ CREATE TABLE IF NOT EXISTS augmentation_tasks (
         CHECK (worker_count >= 1),
 
     CONSTRAINT augmentation_tasks_variants_per_image_check
-        CHECK (variants_per_image >= 1),
+        CHECK (variants_per_image >= 1 AND variants_per_image <= 90),
 
     CONSTRAINT augmentation_tasks_output_folder_name_not_empty_check
         CHECK (length(trim(output_folder_name)) > 0),

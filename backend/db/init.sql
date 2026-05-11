@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS augmentation_tasks (
         CHECK (worker_count >= 1),
 
     CONSTRAINT augmentation_tasks_variants_per_image_check
-        CHECK (variants_per_image >= 1),
+        CHECK (variants_per_image >= 1 AND variants_per_image <= 90),
 
     CONSTRAINT augmentation_tasks_output_folder_name_not_empty_check
         CHECK (length(trim(output_folder_name)) > 0),
