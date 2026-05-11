@@ -29,7 +29,7 @@
 - ☑ **UI Mockup** - Mockup 형태로 frontend ui 구현 by `손원빈`
 - ☑ **API spec 작성** - FE-BE 간 API contract 명세 (MVP) [API-MVP-spec.md](./docs/API-MVP-spec.md) by `손원빈`
 - ☑ **기능명세서 담당자 세부 사항 추가** - 각 기능별 담당 인원 추가 기재
-- ☑ **FastAPI skeleton 구현** - FastAPI 기반 스켈레톤 구현 [backend-MVP-design.md](./docs/backend-MVP-design-decisions.ko.md)
+- ☑ **FastAPI skeleton 구현** - FastAPI 기반 스켈레톤 구현 [backend-MVP-design.md](./docs/backend-MVP-design-decisions.ko.md) by `손원빈`
 ---
 ### 4주차 진행사항
 - ☑ **기능명세서/ERD 수정** - 셔플 기능 추가 및 ERD 컨벤션 통일 [ERD.png](#erd) by `최규문`, `손원빈`
