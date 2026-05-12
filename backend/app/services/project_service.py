@@ -3,19 +3,19 @@ from pathlib import Path
 from typing import Any
 
 from app.core.errors import ApiError
-from app.repositories.json_store import JsonStore
+from app.repositories import projects_repo, tasks_repo
+from app.repositories.postgres import PostgresDatabase
 from app.schemas.projects import ProjectCreate
 from app.services.folder_scanner import scan_folder
-from app.services.time import utc_now_iso
 
 
 class ProjectService:
-    def __init__(self, store: JsonStore) -> None:
-        self.store = store
+    def __init__(self, db: PostgresDatabase) -> None:
+        self.db = db
 
     def list_projects(self) -> list[dict[str, Any]]:
-        state = self.store.read_state()
-        return sorted(state["projects"], key=lambda project: project["id"], reverse=True)
+        with self.db.connect() as conn:
+            return projects_repo.list_all(conn)
 
     def create_project(self, payload: ProjectCreate) -> dict[str, Any]:
         title = payload.title.strip()
@@ -51,46 +51,62 @@ class ProjectService:
             )
 
         scan = scan_folder(source_folder)
+        description = (
+            payload.description.strip() if payload.description is not None else None
+        )
+        target_spec = (
+            payload.target_spec.strip() if payload.target_spec is not None else None
+        )
 
-        def mutator(state: dict[str, Any]) -> dict[str, Any]:
-            project = {
-                "id": state["nextProjectId"],
-                "title": title,
-                "description": payload.description.strip()
-                if payload.description is not None
-                else None,
-                "sourceFolderPath": str(source_folder),
-                "targetSpec": payload.target_spec.strip()
-                if payload.target_spec is not None
-                else None,
-                "fileCount": scan.file_count,
-                "totalSizeBytes": scan.total_size_bytes,
-                "hasLabels": scan.has_labels,
-                "createdAt": utc_now_iso(),
-            }
-            state["nextProjectId"] += 1
-            state["projects"].append(project)
-            return project
-
-        return self.store.mutate(mutator)
+        with self.db.connect() as conn:
+            return projects_repo.insert(
+                conn,
+                title=title,
+                description=description,
+                source_folder_path=str(source_folder),
+                target_spec=target_spec,
+                file_count=scan.file_count,
+                total_size_bytes=scan.total_size_bytes,
+                has_labels=scan.has_labels,
+            )
 
     def get_project(self, project_id: int) -> dict[str, Any]:
-        project = self._find_project(project_id)
-        latest_task = self.get_latest_task_summary(project_id)
-        return {**project, "latestTask": latest_task}
+        with self.db.connect() as conn:
+            project = projects_repo.get_by_id(conn, project_id)
+            if project is None:
+                raise ApiError(
+                    "PROJECT_NOT_FOUND",
+                    "Project not found",
+                    status_code=404,
+                    details={"projectId": project_id},
+                )
+            latest = projects_repo.latest_task_summary(conn, project_id)
+        return {**project, "latest_task": latest}
 
     def rescan_project(self, project_id: int) -> dict[str, Any]:
-        """Re-scan the source folder of an existing project and refresh
-        ``fileCount`` / ``totalSizeBytes`` / ``hasLabels``. Other metadata
-        (title, description, sourceFolderPath, targetSpec, createdAt) is
-        preserved.
+        with self.db.connect() as conn:
+            project = projects_repo.get_by_id(conn, project_id)
+            if project is None:
+                raise ApiError(
+                    "PROJECT_NOT_FOUND",
+                    "Project not found",
+                    status_code=404,
+                    details={"projectId": project_id},
+                )
+            active = tasks_repo.get_active_for_project(conn, project_id)
+            if active is not None:
+                raise ApiError(
+                    "PROJECT_HAS_ACTIVE_TASK",
+                    "Project has an active augmentation task",
+                    status_code=409,
+                    details={
+                        "projectId": project_id,
+                        "taskId": active["id"],
+                        "status": active["status"],
+                    },
+                )
 
-        Useful after a user adds or removes images in the source folder
-        without going through the create flow again.
-        """
-        project = self._find_project(project_id)
-
-        source_folder = Path(project["sourceFolderPath"])
+        source_folder = Path(project["source_folder_path"])
         if not source_folder.exists() or not source_folder.is_dir():
             raise ApiError(
                 "PATH_NOT_FOUND",
@@ -108,74 +124,75 @@ class ProjectService:
 
         scan = scan_folder(source_folder)
 
-        def mutator(state: dict[str, Any]) -> dict[str, Any]:
-            for index, candidate in enumerate(state["projects"]):
-                if candidate["id"] == project_id:
-                    updated = {
-                        **candidate,
-                        "fileCount": scan.file_count,
-                        "totalSizeBytes": scan.total_size_bytes,
-                        "hasLabels": scan.has_labels,
-                    }
-                    state["projects"][index] = updated
-                    return updated
-
-            # Project was deleted between the lookup above and this mutation.
-            raise ApiError(
-                "PROJECT_NOT_FOUND",
-                "Project not found",
-                status_code=404,
-                details={"projectId": project_id},
-            )
-
-        return self.store.mutate(mutator)
-
-    def require_project(self, project_id: int) -> dict[str, Any]:
-        return self._find_project(project_id)
-
-    def delete_project(self, project_id: int) -> None:
-        def mutator(state: dict[str, Any]) -> None:
-            before_count = len(state["projects"])
-            state["projects"] = [
-                project for project in state["projects"] if project["id"] != project_id
-            ]
-            if len(state["projects"]) == before_count:
+        with self.db.connect() as conn:
+            locked = projects_repo.get_by_id_for_update(conn, project_id)
+            if locked is None:
                 raise ApiError(
                     "PROJECT_NOT_FOUND",
                     "Project not found",
                     status_code=404,
                     details={"projectId": project_id},
                 )
-            state["tasks"] = [
-                task for task in state["tasks"] if task["projectId"] != project_id
-            ]
+            active = tasks_repo.get_active_for_project(conn, project_id)
+            if active is not None:
+                raise ApiError(
+                    "PROJECT_HAS_ACTIVE_TASK",
+                    "Project has an active augmentation task",
+                    status_code=409,
+                    details={
+                        "projectId": project_id,
+                        "taskId": active["id"],
+                        "status": active["status"],
+                    },
+                )
+            updated = projects_repo.update_scan(
+                conn,
+                project_id=project_id,
+                file_count=scan.file_count,
+                total_size_bytes=scan.total_size_bytes,
+                has_labels=scan.has_labels,
+            )
+            if updated is None:
+                raise ApiError(
+                    "PROJECT_NOT_FOUND",
+                    "Project not found",
+                    status_code=404,
+                    details={"projectId": project_id},
+                )
+            return updated
 
-        self.store.mutate(mutator)
+    def require_project(self, project_id: int) -> dict[str, Any]:
+        with self.db.connect() as conn:
+            project = projects_repo.get_by_id(conn, project_id)
+            if project is None:
+                raise ApiError(
+                    "PROJECT_NOT_FOUND",
+                    "Project not found",
+                    status_code=404,
+                    details={"projectId": project_id},
+                )
+            return project
 
-    def get_latest_task_summary(self, project_id: int) -> dict[str, Any] | None:
-        state = self.store.read_state()
-        project_tasks = [
-            task for task in state["tasks"] if task["projectId"] == project_id
-        ]
-        if not project_tasks:
-            return None
-
-        latest_task = max(project_tasks, key=lambda task: task["id"])
-        return {
-            "id": latest_task["id"],
-            "status": latest_task["status"],
-            "progress": latest_task["progress"],
-        }
-
-    def _find_project(self, project_id: int) -> dict[str, Any]:
-        state = self.store.read_state()
-        for project in state["projects"]:
-            if project["id"] == project_id:
-                return project
-
-        raise ApiError(
-            "PROJECT_NOT_FOUND",
-            "Project not found",
-            status_code=404,
-            details={"projectId": project_id},
-        )
+    def delete_project(self, project_id: int) -> None:
+        with self.db.connect() as conn:
+            project = projects_repo.get_by_id_for_update(conn, project_id)
+            if project is None:
+                raise ApiError(
+                    "PROJECT_NOT_FOUND",
+                    "Project not found",
+                    status_code=404,
+                    details={"projectId": project_id},
+                )
+            active = tasks_repo.get_active_for_project(conn, project_id)
+            if active is not None:
+                raise ApiError(
+                    "PROJECT_HAS_ACTIVE_TASK",
+                    "Project has an active augmentation task",
+                    status_code=409,
+                    details={
+                        "projectId": project_id,
+                        "taskId": active["id"],
+                        "status": active["status"],
+                    },
+                )
+            projects_repo.delete(conn, project_id)
