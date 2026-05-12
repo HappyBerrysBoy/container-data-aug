@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="BACKEND_")
 
     database_url: str = Field(
-        default="postgresql://myuser:mypassword@localhost:5432/mydatabase"
+        default="postgresql://myuser:mypassword@localhost:5433/mydatabase"
     )
     cors_origins: str = Field(
         default="http://localhost:3000,http://127.0.0.1:3000"
