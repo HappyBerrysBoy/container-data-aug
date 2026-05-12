@@ -14,12 +14,10 @@ class AugmentationTaskStatus(StrEnum):
 
 
 class AugmentationTaskCreate(CamelModel):
-    worker_count: int = Field(ge=1)
+    worker_count: int = Field(default=1, ge=1)
     run_ocr_labeling: bool
     output_folder_name: str = Field(min_length=1)
-    # Number of augmented variants to generate per source image (1 ~ 90).
-    # MVP backend only stores the value; actual variant generation comes later.
-    variants_per_image: int = Field(ge=1, le=90)
+    variants_per_image: int = Field(default=1, ge=1, le=90)
 
 
 class AugmentationTaskResponse(CamelModel):
@@ -33,6 +31,7 @@ class AugmentationTaskResponse(CamelModel):
     processed_count: int
     failed_count: int
     total_image_count: int
+    generated_image_count: int
     output_folder_path: str
     started_at: str | None
     completed_at: str | None
@@ -48,6 +47,8 @@ class AugmentationResultResponse(CamelModel):
     total_image_count: int
     success_count: int
     failed_count: int
+    variants_per_image: int
+    generated_image_count: int
     run_ocr_labeling: bool
     output_folder_path: str
     completed_at: str | None
