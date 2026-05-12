@@ -15,7 +15,7 @@ from app.repositories.postgres import PostgresDatabase  # noqa: E402
 
 
 DEFAULT_DATABASE_URL = (
-    "postgresql://myuser:mypassword@localhost:5433/mydatabase"
+    "postgresql://myuser:mypassword@localhost:5432/mydatabase"
 )
 
 
