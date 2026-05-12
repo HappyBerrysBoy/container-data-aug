@@ -1,14 +1,17 @@
-"""Ollama GLM-OCR reader."""
+"""CRAFT + Hugging Face Transformers GLM-OCR reader."""
 from __future__ import annotations
 
-import base64
-import io
-import json
 import re
+import warnings
+from collections.abc import Mapping
 from functools import lru_cache
+from typing import Any
 
 import numpy as np
 from PIL import Image
+
+
+DEFAULT_GLM_MODEL_ID = "zai-org/GLM-OCR"
 
 
 def _is_iso6346_orientation(text: str) -> bool:
@@ -16,180 +19,196 @@ def _is_iso6346_orientation(text: str) -> bool:
     return len(text) >= 10 and text[:4].isalpha() and text[4:10].isdigit()
 
 
-_FULL_PROMPT = """\
-Read the container code in this image (4 letters + 6 digits + optional 1 check digit).
-
-Return ONLY a JSON object, no explanation:
-{"text": "<detected_code>"}"""
-
 _CROP_PROMPT = """\
 What single alphanumeric character (letter A-Z or digit 0-9) is shown in this image?
 Reply with ONLY that one character, nothing else."""
 
 
-class OllamaGlmReader:
-    """Ollama GLM-OCR reader.
+def _clean_single_character(raw: str) -> str:
+    ch = re.sub(r"[^A-Z0-9]", "", raw.upper())
+    return ch[0] if ch else ""
 
-    사전 조건:
-        ollama pull glm-ocr:q8_0
-        ollama serve
-    """
 
-    def __init__(self, model: str = "glm-ocr:q8_0") -> None:
-        self._model = model
+def _import_torch():
+    import torch
 
-    def _call_glm(self, image: np.ndarray) -> list[dict]:
-        """GLM에 이미지 전송 후 파싱 결과 반환."""
-        import ollama
+    return torch
 
-        pil_img = Image.fromarray(image)
-        img_w, img_h = pil_img.size
 
-        buf = io.BytesIO()
-        pil_img.save(buf, format="JPEG", quality=95)
-        b64 = base64.b64encode(buf.getvalue()).decode()
-
-        response = ollama.chat(
-            model=self._model,
-            messages=[{"role": "user", "content": _FULL_PROMPT, "images": [b64]}],
+def _resolve_runtime_device(requested_device: str, torch_module: Any | None = None) -> str:
+    torch = torch_module if torch_module is not None else _import_torch()
+    requested = requested_device.strip().lower()
+    if requested == "auto":
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    if requested.startswith("cuda") and not torch.cuda.is_available():
+        warnings.warn(
+            "CUDA was requested for GLM-OCR, but CUDA is not available. Falling back to CPU.",
+            RuntimeWarning,
+            stacklevel=2,
         )
-
-        content = response["message"]["content"]
-        print(f"[GLM RAW] {content!r}")
-        return _parse_response(content, img_w, img_h)
-
-    def readtext(self, image: np.ndarray) -> list[dict]:
-        """GLM-OCR 실행. 첫 글자가 숫자면 180° 회전 후 재시도.
-
-        Returns:
-            list of {"text": str, "bbox": [x1, y1, x2, y2]}
-        """
-        results = self._call_glm(image)
-
-        full_text = "".join(re.sub(r"[^A-Z0-9]", "", r["text"].upper()) for r in results)
-        if not _is_iso6346_orientation(full_text):
-            print(f"[GLM] ISO 6346 형식 불일치(text={full_text!r}) → 180° 회전 후 재시도")
-            img_h, img_w = image.shape[:2]
-            rotated = np.rot90(image, 2)
-            results = self._call_glm(rotated)
-            results = [
-                {**r, "bbox": [
-                    img_w - r["bbox"][2],
-                    img_h - r["bbox"][3],
-                    img_w - r["bbox"][0],
-                    img_h - r["bbox"][1],
-                ]}
-                for r in results
-            ]
-
-        _save_glm_debug(Image.fromarray(image), results)
-        return results
+        return "cpu"
+    return requested_device
 
 
-def _save_glm_debug(pil_img: Image.Image, results: list[dict]) -> None:
-    """GLM bbox를 빨간 박스로 표시한 디버그 이미지를 temp/glm_debug.jpg 로 저장."""
-    from pathlib import Path
-    from PIL import ImageDraw
-
-    out_img = pil_img.copy()
-    draw = ImageDraw.Draw(out_img)
-    for item in results:
-        x1, y1, x2, y2 = item["bbox"]
-        draw.rectangle([x1, y1, x2, y2], outline="red", width=2)
-        draw.text((x1, max(0, y1 - 12)), item["text"], fill="red")
-
-    out = Path("temp/glm_debug.jpg")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out_img.save(out)
-    print(f"[GLM DEBUG] {out.resolve()}")
+def _resolve_torch_dtype(torch_module: Any, dtype: str | Any) -> str | Any:
+    if dtype == "auto" or not isinstance(dtype, str):
+        return dtype
+    return getattr(torch_module, dtype)
 
 
-def _parse_response(content: str, img_w: int, img_h: int) -> list[dict]:
-    """GLM 응답 텍스트 → [{"text": str, "bbox": [x1, y1, x2, y2]}] 반환.
+def _input_token_count(inputs: Any) -> int:
+    input_ids = inputs["input_ids"] if isinstance(inputs, Mapping) else inputs.input_ids
+    shape = getattr(input_ids, "shape", None)
+    if shape is not None:
+        return int(shape[-1])
+    return len(input_ids[0]) if input_ids else 0
 
-    GLM이 bbox 없이 {"text": "..."} 형태로만 반환한 경우
-    이미지 전체를 bbox로 사용한다.
-    """
-    json_str = re.search(r"```(?:json)?\s*([\s\S]*?)```", content)
-    raw = json_str.group(1).strip() if json_str else content.strip()
 
+def _slice_generated_ids(generated_ids: Any, input_len: int) -> Any:
     try:
-        parsed = json.loads(raw)
-    except (json.JSONDecodeError, ValueError):
-        m = re.search(r'["\s]text["\s]*:\s*"([A-Za-z0-9 ]+)"', raw)
-        if not m:
-            return []
-        text = re.sub(r"[^A-Z0-9]", "", m.group(1).upper())
-        if not text:
-            return []
-        print(f"[GLM FALLBACK] JSON 파싱 실패 후 정규식 추출: {text!r}")
-        return [{"text": text, "bbox": [0, 0, img_w, img_h]}]
-
-    if isinstance(parsed, list):
-        items = parsed
-    elif isinstance(parsed, dict):
-        items = [parsed]
-    else:
-        return []
-
-    results = []
-    for item in items:
-        text = re.sub(r"[^A-Z0-9 ]", "", str(item.get("text", "")).upper()).strip()
-        if not text:
-            continue
-
-        raw_bbox = item.get("bbox", [])
-        if len(raw_bbox) == 4:
-            try:
-                x1, y1, x2, y2 = (float(v) for v in raw_bbox)
-            except (TypeError, ValueError):
-                x1, y1, x2, y2 = 0, 0, img_w, img_h
-            if max(x1, y1, x2, y2) <= 1.0:
-                x1, x2 = x1 * img_w, x2 * img_w
-                y1, y2 = y1 * img_h, y2 * img_h
-        else:
-            x1, y1, x2, y2 = 0, 0, img_w, img_h
-
-        results.append({
-            "text": text,
-            "bbox": [int(x1), int(y1), int(x2), int(y2)],
-        })
-
-    return results
+        return generated_ids[:, input_len:]
+    except (TypeError, IndexError):
+        return [row[input_len:] for row in generated_ids]
 
 
-@lru_cache(maxsize=1)
-def get_ollama_glm_reader(model: str = "glm-ocr:q8_0") -> OllamaGlmReader:
-    """OllamaGlmReader 생성 후 캐시."""
-    return OllamaGlmReader(model=model)
+def _move_inputs_to_device(inputs: Any, device: str) -> Any:
+    if hasattr(inputs, "to"):
+        return inputs.to(device)
+    if isinstance(inputs, Mapping):
+        return {
+            key: value.to(device) if hasattr(value, "to") else value
+            for key, value in inputs.items()
+        }
+    return inputs
+
+
+class _TransformersGlmBackend:
+    """Lazy-loaded Transformers GLM-OCR crop recognizer."""
+
+    def __init__(
+        self,
+        *,
+        model_id_or_path: str,
+        device: str,
+        dtype: str | Any,
+        local_files_only: bool,
+    ) -> None:
+        self._model_id_or_path = model_id_or_path
+        self._local_files_only = local_files_only
+        self._torch = _import_torch()
+        self._device = _resolve_runtime_device(device, self._torch)
+        self._torch_dtype = _resolve_torch_dtype(self._torch, dtype)
+        self._processor, self._model = self._load()
+
+    @property
+    def device(self) -> str:
+        return self._device
+
+    def _load(self):
+        from transformers import AutoModelForImageTextToText, AutoProcessor
+
+        processor = AutoProcessor.from_pretrained(
+            self._model_id_or_path,
+            local_files_only=self._local_files_only,
+        )
+        model = AutoModelForImageTextToText.from_pretrained(
+            self._model_id_or_path,
+            local_files_only=self._local_files_only,
+            torch_dtype=self._torch_dtype,
+        )
+        model = model.to(self._device)
+        model.eval()
+        return processor, model
+
+    def read_character(self, crop: Image.Image) -> str:
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": crop},
+                    {"type": "text", "text": _CROP_PROMPT},
+                ],
+            }
+        ]
+        inputs = self._processor.apply_chat_template(
+            messages,
+            add_generation_prompt=True,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+        )
+        input_len = _input_token_count(inputs)
+        inputs = _move_inputs_to_device(inputs, self._device)
+
+        with self._torch.no_grad():
+            generated_ids = self._model.generate(
+                **inputs,
+                do_sample=False,
+                max_new_tokens=8,
+            )
+
+        generated_ids = _slice_generated_ids(generated_ids, input_len)
+        decoded = self._processor.batch_decode(
+            generated_ids,
+            skip_special_tokens=True,
+        )
+        return _clean_single_character(decoded[0].strip() if decoded else "")
 
 
 class CraftGlmReader:
-    """CRAFT(bbox 감지) + GLM(크롭별 문자 인식) 조합 리더.
+    """CRAFT(bbox 감지) + Transformers GLM-OCR(크롭별 문자 인식) 조합 리더.
 
-    CRAFT로 글자 단위 bbox를 감지하고, 각 bbox를 크롭해 GLM으로 한 글자씩 인식합니다.
-    첫 글자가 숫자면 180° 회전 후 재시도합니다.
+    CRAFT로 글자 단위 bbox를 감지하고, 각 bbox를 크롭해 GLM-OCR로 한 글자씩
+    인식합니다. 첫 글자가 숫자면 180° 회전 후 재시도합니다.
     """
 
-    def __init__(self, model: str = "glm-ocr:q8_0", cuda: bool = False) -> None:
-        self._model = model
-        self._cuda = cuda
+    def __init__(
+        self,
+        model_id_or_path: str = DEFAULT_GLM_MODEL_ID,
+        device: str = "cuda",
+        dtype: str | Any = "auto",
+        local_files_only: bool = False,
+    ) -> None:
+        self._model_id_or_path = model_id_or_path
+        self._device = device
+        self._dtype = dtype
+        self._local_files_only = local_files_only
         self._craft = None
+        self._glm_backend: _TransformersGlmBackend | None = None
+        self._runtime_device: str | None = None
+
+    def _get_device(self) -> str:
+        if self._runtime_device is None:
+            self._runtime_device = _resolve_runtime_device(self._device)
+        return self._runtime_device
+
+    def _get_glm_backend(self) -> _TransformersGlmBackend:
+        if self._glm_backend is None:
+            self._glm_backend = _TransformersGlmBackend(
+                model_id_or_path=self._model_id_or_path,
+                device=self._get_device(),
+                dtype=self._dtype,
+                local_files_only=self._local_files_only,
+            )
+        return self._glm_backend
 
     def _get_craft(self):
         if self._craft is None:
             import warnings
+
             warnings.filterwarnings("ignore", category=UserWarning, module="torchvision")
             import torchvision.models.vgg as _vgg
+
             if not hasattr(_vgg, "model_urls"):
                 _vgg.model_urls = {
                     "vgg16_bn": "https://download.pytorch.org/models/vgg16_bn-6c64b313.pth",
                 }
             from craft_text_detector import Craft
+
             self._craft = Craft(
                 output_dir=None,
                 crop_type="box",
-                cuda=self._cuda,
+                cuda=self._get_device().startswith("cuda"),
                 link_threshold=0.9,
                 text_threshold=0.7,
                 low_text=0.4,
@@ -273,30 +292,18 @@ class CraftGlmReader:
         print(f"[CRAFT DEBUG] {out.resolve()}")
 
     def _read_crop(self, crop: np.ndarray) -> str:
-        """크롭 이미지 한 장을 GLM으로 인식해 단일 문자(A-Z0-9) 반환. 실패 시 ""."""
-        import ollama
-
-        buf = io.BytesIO()
-        Image.fromarray(crop).save(buf, format="JPEG", quality=95)
-        b64 = base64.b64encode(buf.getvalue()).decode()
-
+        """크롭 이미지 한 장을 GLM-OCR로 인식해 단일 문자(A-Z0-9) 반환."""
+        backend = self._get_glm_backend()
         try:
-            response = ollama.chat(
-                model=self._model,
-                messages=[{"role": "user", "content": _CROP_PROMPT, "images": [b64]}],
-            )
-            raw = response["message"]["content"].strip()
+            result = backend.read_character(Image.fromarray(crop).convert("RGB"))
         except Exception as e:
             print(f"[GLM CROP] 오류: {e}")
             return ""
-
-        ch = re.sub(r"[^A-Z0-9]", "", raw.upper())
-        result = ch[0] if ch else ""
-        print(f"[GLM CROP] raw={raw!r} → {result!r}")
+        print(f"[GLM CROP] → {result!r}")
         return result
 
     def _read_from(self, image: np.ndarray) -> list[dict]:
-        """CRAFT bbox 감지 → 각 크롭 → GLM 인식."""
+        """CRAFT bbox 감지 → 각 크롭 → GLM-OCR 인식."""
         craft_boxes = self._craft_boxes(image)
         if not craft_boxes:
             return []
@@ -316,7 +323,7 @@ class CraftGlmReader:
         """4영문 + 7숫자이면 각각 위치 순 정렬 후 letters+digits 순으로 반환.
         조건 불일치 시 원본 순서 유지."""
         letters = [r for r in results if r["text"].isalpha()]
-        digits  = [r for r in results if r["text"].isdigit()]
+        digits = [r for r in results if r["text"].isdigit()]
         if len(letters) == 4 and len(digits) == 7:
             key = lambda r: r["bbox"][1] if is_vertical else r["bbox"][0]
             letters.sort(key=key)
@@ -325,7 +332,7 @@ class CraftGlmReader:
         return results
 
     def readtext(self, image: np.ndarray) -> list[dict]:
-        """CRAFT bbox 크롭 → GLM 글자 인식.
+        """CRAFT bbox 크롭 → GLM-OCR 글자 인식.
 
         1) 4영문+7숫자 확인 → 각각 위치 순 정렬 후 연결 (2줄 이미지 대응)
         2) ISO 6346 형식 불일치 시 → 180° 회전 후 재시도
@@ -358,6 +365,16 @@ class CraftGlmReader:
 
 
 @lru_cache(maxsize=1)
-def get_craft_glm_reader(model: str = "glm-ocr:q8_0", cuda: bool = False) -> CraftGlmReader:
+def get_craft_glm_reader(
+    model_id_or_path: str = DEFAULT_GLM_MODEL_ID,
+    device: str = "cuda",
+    dtype: str | Any = "auto",
+    local_files_only: bool = False,
+) -> CraftGlmReader:
     """CraftGlmReader 생성 후 캐시."""
-    return CraftGlmReader(model=model, cuda=cuda)
+    return CraftGlmReader(
+        model_id_or_path=model_id_or_path,
+        device=device,
+        dtype=dtype,
+        local_files_only=local_files_only,
+    )

@@ -111,6 +111,7 @@ def test_start_task_copies_images_and_returns_result(tmp_path: Path) -> None:
         json={
             "workerCount": 2,
             "runOcrLabeling": True,
+            "variantsPerImage": 1,
             "outputFolderName": "dataset-augmented",
         },
     )
@@ -152,6 +153,7 @@ def test_active_task_blocks_second_task_and_result_until_finished(tmp_path: Path
         json={
             "workerCount": 1,
             "runOcrLabeling": False,
+            "variantsPerImage": 1,
             "outputFolderName": "first-output",
         },
     )
@@ -172,6 +174,7 @@ def test_active_task_blocks_second_task_and_result_until_finished(tmp_path: Path
         json={
             "workerCount": 1,
             "runOcrLabeling": False,
+            "variantsPerImage": 1,
             "outputFolderName": "second-output",
         },
     )
@@ -199,6 +202,7 @@ def test_output_folder_name_must_be_a_folder_name(tmp_path: Path) -> None:
         json={
             "workerCount": 1,
             "runOcrLabeling": False,
+            "variantsPerImage": 1,
             "outputFolderName": "../outside",
         },
     )
