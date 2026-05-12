@@ -23,6 +23,7 @@ The API is served at `http://127.0.0.1:8000` by default.
 | `uv run uvicorn app.main:app --reload` | Start the development server |
 | `uv run python main.py` | Start the development server through the compatibility entrypoint |
 | `uv run pytest` | Run backend API contract tests |
+| `uv sync --extra cuda` | Install optional CRAFT/GLM-OCR runtime dependencies |
 
 ## Runtime State
 
@@ -49,6 +50,22 @@ The file is generated at runtime and stores project metadata, augmentation task 
 - `GET /api/augmentation-tasks/{taskId}/result`
 
 The augmentation task currently creates the output folder and copies source images while preserving relative paths. Real augmentation and OCR are deferred.
+
+## GLM-OCR Runtime
+
+The shuffle augmentation module can run CRAFT bbox detection with Hugging Face Transformers GLM-OCR for per-character recognition. Install the optional runtime before using the real model:
+
+```bash
+uv sync --extra cuda
+```
+
+By default the reader loads `zai-org/GLM-OCR` through the Hugging Face cache on first use. Pass a local model directory through `get_craft_glm_reader(model_id_or_path="/path/to/model", local_files_only=True)` for offline runs. The default device is CUDA; if CUDA is unavailable, the reader warns and falls back to CPU.
+
+Real model tests are opt-in because they require a cached model or network access:
+
+```bash
+BACKEND_RUN_REAL_MODEL_TESTS=1 uv run --extra cuda pytest tests/test_glm_ocr_transformers.py
+```
 
 ## Notes
 

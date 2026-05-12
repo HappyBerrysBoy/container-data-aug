@@ -115,14 +115,15 @@ def test_start_task_copies_images_and_returns_result(
     with make_client(db) as client:
         project = create_project(client, source)
 
-        response = client.post(
-            f"/api/projects/{project['id']}/augmentation-tasks",
-            json={
-                "workerCount": 2,
-                "runOcrLabeling": True,
-                "outputFolderName": "dataset-augmented",
-            },
-        )
+    response = client.post(
+        f"/api/projects/{project['id']}/augmentation-tasks",
+        json={
+            "workerCount": 2,
+            "runOcrLabeling": True,
+            "variantsPerImage": 1,
+            "outputFolderName": "dataset-augmented",
+        },
+    )
 
         assert response.status_code == 201
         created_task = response.json()
@@ -169,17 +170,18 @@ def test_active_task_blocks_second_task_and_result_until_finished(
     with make_client(db, run_background_tasks=False) as client:
         project = create_project(client, source)
 
-        first_response = client.post(
-            f"/api/projects/{project['id']}/augmentation-tasks",
-            json={
-                "workerCount": 1,
-                "runOcrLabeling": False,
-                "outputFolderName": "first-output",
-            },
-        )
-        assert first_response.status_code == 201
-        first_task = first_response.json()
-        assert first_task["status"] == "PENDING"
+    first_response = client.post(
+        f"/api/projects/{project['id']}/augmentation-tasks",
+        json={
+            "workerCount": 1,
+            "runOcrLabeling": False,
+            "variantsPerImage": 1,
+            "outputFolderName": "first-output",
+        },
+    )
+    assert first_response.status_code == 201
+    first_task = first_response.json()
+    assert first_task["status"] == "PENDING"
 
         active_response = client.get("/api/augmentation-tasks/active")
         assert active_response.status_code == 200
@@ -191,16 +193,17 @@ def test_active_task_blocks_second_task_and_result_until_finished(
         assert result_response.status_code == 409
         assert_error(result_response, "TASK_NOT_FINISHED")
 
-        second_response = client.post(
-            f"/api/projects/{project['id']}/augmentation-tasks",
-            json={
-                "workerCount": 1,
-                "runOcrLabeling": False,
-                "outputFolderName": "second-output",
-            },
-        )
-        assert second_response.status_code == 409
-        assert_error(second_response, "TASK_ALREADY_RUNNING")
+    second_response = client.post(
+        f"/api/projects/{project['id']}/augmentation-tasks",
+        json={
+            "workerCount": 1,
+            "runOcrLabeling": False,
+            "variantsPerImage": 1,
+            "outputFolderName": "second-output",
+        },
+    )
+    assert second_response.status_code == 409
+    assert_error(second_response, "TASK_ALREADY_RUNNING")
 
         stop_response = client.post(
             f"/api/augmentation-tasks/{first_task['id']}/stop"
@@ -222,14 +225,15 @@ def test_output_folder_name_must_be_a_folder_name(
     with make_client(db) as client:
         project = create_project(client, source)
 
-        response = client.post(
-            f"/api/projects/{project['id']}/augmentation-tasks",
-            json={
-                "workerCount": 1,
-                "runOcrLabeling": False,
-                "outputFolderName": "../outside",
-            },
-        )
+    response = client.post(
+        f"/api/projects/{project['id']}/augmentation-tasks",
+        json={
+            "workerCount": 1,
+            "runOcrLabeling": False,
+            "variantsPerImage": 1,
+            "outputFolderName": "../outside",
+        },
+    )
 
     assert response.status_code == 422
     assert_error(response, "VALIDATION_ERROR")
