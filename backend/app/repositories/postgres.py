@@ -9,10 +9,14 @@ from psycopg.rows import dict_row
 @dataclass(frozen=True)
 class PostgresDatabase:
     database_url: str
+    options: str | None = None
 
     @contextmanager
     def connect(self) -> Iterator[psycopg.Connection]:
-        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+        kwargs: dict[str, object] = {"row_factory": dict_row}
+        if self.options:
+            kwargs["options"] = self.options
+        with psycopg.connect(self.database_url, **kwargs) as connection:
             yield connection
 
     def ping(self) -> bool:
