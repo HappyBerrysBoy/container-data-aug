@@ -9,7 +9,7 @@
 | Layer | Stack |
 | --- | --- |
 | Frontend | Next.js |
-| Backend | FastAPI (Python) |
+| Backend | FastAPI (Python 3.12) |
 | Database | PostgreSQL |
 | GPU | CUDA 12.6 |
 | Infra | Docker Compose |
