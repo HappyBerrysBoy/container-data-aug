@@ -5,13 +5,13 @@ import {
   FolderOpen,
   ImageIcon,
   RotateCcw,
-  Tags,
   XCircle,
 } from "lucide-react"
 import { useState, type ReactNode } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import { ApiError, localFolders } from "@/lib/api"
 import { formatDateShort, pathBasename } from "@/lib/format"
 import type { AugmentationResult, Project } from "@/types/project"
 
@@ -30,8 +30,22 @@ export function AugmentationResultView({
   result,
   onBackToDetail,
 }: AugmentationResultViewProps) {
-  const [showFolderNotice, setShowFolderNotice] = useState(false)
+  const [isOpeningFolder, setIsOpeningFolder] = useState(false)
+  const [folderOpenError, setFolderOpenError] = useState<string | null>(null)
   const folderName = pathBasename(project.sourceFolderPath) || project.title
+
+  async function openOutputFolder() {
+    if (isOpeningFolder) return
+    setIsOpeningFolder(true)
+    setFolderOpenError(null)
+    try {
+      await localFolders.open(result.outputFolderPath)
+    } catch (error) {
+      setFolderOpenError(describeOpenFolderError(error))
+    } finally {
+      setIsOpeningFolder(false)
+    }
+  }
 
   return (
     <section className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-6 py-10 md:px-10">
@@ -66,9 +80,14 @@ export function AugmentationResultView({
             <Button
               type="button"
               variant="outline"
-              onClick={() => setShowFolderNotice(true)}
+              onClick={openOutputFolder}
+              disabled={isOpeningFolder}
             >
-              <FolderOpen className="size-4" aria-hidden="true" />
+              {isOpeningFolder ? (
+                <RotateCcw className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <FolderOpen className="size-4" aria-hidden="true" />
+              )}
               저장 폴더 위치 확인
             </Button>
             <Button type="button" onClick={onBackToDetail}>
@@ -78,14 +97,14 @@ export function AugmentationResultView({
           </div>
         </div>
 
-        {showFolderNotice && (
-          <div className="mx-5 rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">
-            결과 폴더 경로:{" "}
-            <span className="font-medium text-foreground break-all">
-              {result.outputFolderPath}
-            </span>
+        {folderOpenError ? (
+          <div
+            role="alert"
+            className="mx-5 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900"
+          >
+            {folderOpenError}
           </div>
-        )}
+        ) : null}
 
         <Separator />
 
@@ -106,23 +125,16 @@ export function AugmentationResultView({
             value={`${result.failedCount.toLocaleString("ko-KR")}개`}
           />
         </div>
-
-        <div className="px-5 pb-5">
-          <div className="rounded-lg border bg-muted/20 p-4">
-            <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-              <Tags className="size-4" aria-hidden="true" />
-              <span>라벨링 적용 여부</span>
-            </div>
-            <p className="text-sm font-semibold">
-              {result.runOcrLabeling
-                ? "OCR 라벨링 적용"
-                : "OCR 라벨링 미적용"}
-            </p>
-          </div>
-        </div>
       </div>
     </section>
   )
+}
+
+function describeOpenFolderError(error: unknown): string {
+  if (error instanceof ApiError) {
+    return `${error.code}: ${error.message}`
+  }
+  return "결과 폴더를 열지 못했습니다. 백엔드가 실행 중인지 확인해 주세요."
 }
 
 function ResultMetric({

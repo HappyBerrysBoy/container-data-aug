@@ -48,12 +48,14 @@ backend/
         health.py
         projects.py
         augmentation_tasks.py
+        local_folders.py
     core/
       config.py
       errors.py
     schemas/
       projects.py
       augmentation_tasks.py
+      local_folders.py
       errors.py
     repositories/
       postgres.py
@@ -70,18 +72,18 @@ backend/
 
 ### 3. 증강 러너 (Augmentation Runner)
 
-MVP 러너는 실제 파일 출력을 수행하지만, 실제 이미지 증강은 수행하지 않습니다.
+현재 러너는 실제 파일 출력을 수행하며, CRAFT/GLM-OCR 기반 문자 인식 후 셔플 증강 이미지를 생성합니다.
 
 - 출력 폴더를 생성합니다.
-- 원본 이미지 파일을 출력 폴더로 복사합니다.
+- 원본 이미지마다 `variantsPerImage` 개수만큼 셔플 결과 생성을 시도합니다.
 - 상대 디렉터리 구조를 유지합니다.
 - 동일한 상대 경로의 기존 출력 파일을 덮어씁니다.
 - 성공/실패 여부와 관계없이 처리 완료된 원본 이미지 수를 `processedCount`로 카운트합니다.
 - 실패한 원본 이미지 수를 `failedCount`로 카운트합니다.
 - 실제 디스크에 생성된 파일 수를 `generatedImageCount`로 카운트합니다.
 - 진행률은 `processedCount / totalImageCount * 100`으로 계산합니다.
-- `variantsPerImage`는 저장하지만, MVP copy runner는 실제 variant 파일을 생성하지 않습니다.
-- `runOcrLabeling`은 저장만 하고, 아직 OCR을 실행하지 않습니다.
+- `variantsPerImage`는 정상 처리된 원본 이미지당 생성할 셔플 결과 수로 사용합니다.
+- `runOcrLabeling`은 호환용 저장 필드이며 runner 실행 여부를 제어하지 않습니다. 프론트엔드 옵션 모달에서도 더 이상 선택 UI를 노출하지 않고 `true`로 고정 전송합니다.
 
 ### 4. 작업 실행 (Task Execution)
 
@@ -131,8 +133,19 @@ FastAPI에 내장된 OpenAPI 지원을 사용합니다.
 - OpenAPI JSON: `/openapi.json`
 - API 제목: `Container Image Augmentation API`
 - API 버전: `0.1.0`
-- 라우트 태그: `health`, `projects`, `augmentation-tasks`
+- 라우트 태그: `health`, `projects`, `augmentation-tasks`, `local-folders`
 - 응답 모델과 공통 에러 응답 스키마를 선언합니다.
+
+### 8.1 로컬 폴더 선택/열기 보조 API
+
+로컬 앱 사용성을 위해 프론트엔드가 직접 경로를 입력받지 않고 백엔드에 OS 폴더 선택/열기를 요청하는 보조 라우트를 둡니다.
+
+- 엔드포인트: `POST /api/local-folders/select`, `POST /api/local-folders/open`
+- `select`는 백엔드 프로세스가 실행 중인 머신에서 OS 폴더 선택 창을 열고 선택된 절대경로 또는 `null`을 반환합니다.
+- `open`은 존재하는 디렉터리만 OS 파일 탐색기로 엽니다. 없으면 `PATH_NOT_FOUND`, 탐색기 실행 실패는 `FOLDER_OPEN_FAILED`입니다.
+- 이 API는 UI 편의를 위한 로컬 헬퍼이며, 프로젝트/작업 DB 스키마에는 영향을 주지 않습니다.
+- 프로젝트 생성 API는 계속 `sourceFolderPath`를 받습니다. 다만 프론트엔드 생성 화면은 직접 입력 대신 이 헬퍼로 선택한 값을 전송합니다.
+- 프론트엔드 생성 화면의 `targetSpec`은 자유 입력이 아니라 드롭다운이며, 현재 선택지는 `ISO 6346` 하나입니다.
 
 ### 9. CORS
 
@@ -176,17 +189,15 @@ FastAPI에 내장된 OpenAPI 지원을 사용합니다.
 - `variantsPerImage`: 생략 시 `1`, 값을 보내면 `1` 이상 `90` 이하. 범위 밖은 `422 VALIDATION_ERROR`.
 - `outputFolderName`: 비어 있지 않은 폴더 이름(경로 X). §6 참고.
 
-`variantsPerImage`의 상한 `90`은 실제 variant 생성이 도입될 때 단일 작업에서 출력 폴더 크기가 비현실적으로 커지는 것을 막기 위한 안전장치입니다. MVP copy runner는 이 값을 저장만 하고 실제 생성 파일 수에는 반영하지 않습니다.
+`variantsPerImage`의 상한 `90`은 단일 작업에서 출력 폴더 크기가 비현실적으로 커지는 것을 막기 위한 안전장치입니다. 현재 runner는 정상 처리된 원본 이미지마다 이 값만큼 셔플 결과 생성을 시도하고, 실제 생성 파일 수를 `generatedImageCount`에 반영합니다.
 
 ## 연기됨 (Deferred)
 
 - 프론트엔드 API 통합
-- 실제 variant 이미지 생성
 - 이미지 행 및 라벨 행 저장
 - OCR 모델 관리
 - 작업 로그 API
-- 실제 증강 알고리즘
-- 실제 OCR 라벨링
+- OCR 모델 선택 UI
 - WebSocket/SSE 진행 상황 푸시
 - ZIP 다운로드
 - 경로 허용 목록(allow-list) 제한
@@ -197,14 +208,16 @@ FastAPI에 내장된 OpenAPI 지원을 사용합니다.
 - 유효한 로컬 이미지 폴더로 프로젝트를 생성할 수 있습니다.
 - 프로젝트 목록/상세/삭제 API는 `docs/API-MVP-spec.md`를 따릅니다.
 - `POST /api/projects/{projectId}/rescan`을 호출하면 `fileCount`/`totalSizeBytes`/`hasLabels`가 새로 스캔된 값으로 갱신되고, 그 외 메타데이터와 `tasks` 행은 보존됩니다.
-- 증강 작업을 시작하면 출력 폴더가 생성되고 이미지가 복사됩니다.
+- 증강 작업을 시작하면 출력 폴더가 생성되고 셔플 결과 이미지가 저장됩니다.
 - 두 번째 활성 작업은 `TASK_ALREADY_RUNNING`으로 거부됩니다.
 - active task가 있는 프로젝트 삭제 또는 재스캔은 `PROJECT_HAS_ACTIVE_TASK`로 거부됩니다.
 - `workerCount`를 생략하면 `1`로 저장되고, `2` 이상으로 보내도 MVP runner는 단일 실행 흐름으로 처리합니다.
-- `variantsPerImage`가 `2` 이상이어도 MVP copy runner의 `generatedImageCount`는 실제 복사 성공 파일 수와 일치합니다.
+- `variantsPerImage`가 `2` 이상이면 정상 처리된 원본 이미지마다 해당 개수만큼 셔플 결과 생성을 시도하고, `generatedImageCount`는 실제 생성 파일 수와 일치합니다.
 - `variantsPerImage`에 `91` 이상 또는 `0` 이하 값을 보내면 `422 VALIDATION_ERROR`로 거부됩니다.
 - 폴링은 작업 진행 상황을 반환합니다.
 - 대기 중이거나 실행 중인 작업을 중지하면 `STOPPED`를 반환합니다.
 - 결과는 `DONE`, `FAILED`, `STOPPED` 상태에서만 사용 가능합니다.
 - Swagger/OpenAPI를 사용할 수 있습니다.
+- 프로젝트 생성 화면은 직접 경로 입력 대신 OS 폴더 선택 창으로 원본 폴더를 선택합니다.
+- 증강 결과 화면의 저장 폴더 확인 버튼은 경로 텍스트를 안내하지 않고 OS 파일 탐색기로 결과 폴더를 엽니다.
 - `uv run pytest`가 통과합니다.

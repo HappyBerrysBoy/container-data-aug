@@ -1,12 +1,16 @@
 "use client"
 
 import { AlertCircle, FolderOpen, Loader2 } from "lucide-react"
-import type { FormEvent } from "react"
+import { useState, type FormEvent } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { ApiError, localFolders } from "@/lib/api"
+
+const TARGET_SPEC_OPTIONS = ["ISO 6346"]
 
 type CreateProjectViewProps = {
   sourceFolderPath: string
@@ -40,10 +44,31 @@ export function CreateProjectView({
   onTargetSpecChange,
   onCreateProject,
 }: CreateProjectViewProps) {
+  const [isSelectingFolder, setIsSelectingFolder] = useState(false)
+  const [folderSelectionError, setFolderSelectionError] = useState<
+    string | null
+  >(null)
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (isCreating) return
     onCreateProject()
+  }
+
+  async function selectSourceFolder() {
+    if (isCreating || isSelectingFolder) return
+    setIsSelectingFolder(true)
+    setFolderSelectionError(null)
+    try {
+      const { path } = await localFolders.select()
+      if (path) {
+        onSourceFolderPathChange(path)
+      }
+    } catch (error) {
+      setFolderSelectionError(describeFolderSelectionError(error))
+    } finally {
+      setIsSelectingFolder(false)
+    }
   }
 
   const canSubmit =
@@ -61,8 +86,7 @@ export function CreateProjectView({
           프로젝트 생성
         </h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-          백엔드가 폴더를 스캔하여 이미지 개수, 용량, 라벨 포함 여부를 자동으로
-          파악합니다.
+          백엔드가 폴더를 스캔하여 이미지 개수와 용량을 자동으로 파악합니다.
         </p>
       </div>
 
@@ -70,21 +94,44 @@ export function CreateProjectView({
         <div className="grid gap-2">
           <Label htmlFor="source-folder-path">
             <FolderOpen className="size-4" aria-hidden="true" />
-            이미지 폴더 절대경로
+            이미지 폴더
           </Label>
-          <Input
-            id="source-folder-path"
-            value={sourceFolderPath}
-            onChange={(event) => onSourceFolderPathChange(event.target.value)}
-            placeholder="예: E:\datasets\container-images"
-            disabled={isCreating}
-            autoComplete="off"
-            required
-          />
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <div
+              id="source-folder-path"
+              className="min-h-10 min-w-0 flex-1 rounded-md border bg-muted/20 px-3 py-2 text-sm"
+            >
+              {sourceFolderPath ? (
+                <span className="break-all">{sourceFolderPath}</span>
+              ) : (
+                <span className="text-muted-foreground">
+                  선택된 폴더가 없습니다.
+                </span>
+              )}
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={selectSourceFolder}
+              disabled={isCreating || isSelectingFolder}
+            >
+              {isSelectingFolder ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <FolderOpen className="size-4" aria-hidden="true" />
+              )}
+              폴더 선택
+            </Button>
+          </div>
           <p className="text-xs text-muted-foreground">
-            로컬 디스크의 절대경로를 입력하세요. 백엔드가 해당 폴더를 읽을 수
+            로컬 디스크의 이미지 폴더를 선택하세요. 백엔드가 해당 폴더를 읽을 수
             있어야 합니다.
           </p>
+          {folderSelectionError ? (
+            <p role="alert" className="text-xs text-rose-700">
+              {folderSelectionError}
+            </p>
+          ) : null}
         </div>
 
         <div className="grid gap-2">
@@ -114,14 +161,21 @@ export function CreateProjectView({
         </div>
 
         <div className="grid gap-2">
-          <Label htmlFor="target-spec">타겟 규격 (선택)</Label>
-          <Input
+          <Label htmlFor="target-spec">타겟 규격</Label>
+          <Select
             id="target-spec"
             value={targetSpec}
-            onChange={(event) => onTargetSpecChange(event.target.value)}
-            placeholder="예: ISO 6346"
+            onChange={(event) => {
+              onTargetSpecChange(event.target.value)
+            }}
             disabled={isCreating}
-          />
+          >
+            {TARGET_SPEC_OPTIONS.map((spec) => (
+              <option key={spec} value={spec}>
+                {spec}
+              </option>
+            ))}
+          </Select>
         </div>
 
         {errorMessage ? (
@@ -155,4 +209,11 @@ export function CreateProjectView({
       </form>
     </section>
   )
+}
+
+function describeFolderSelectionError(error: unknown): string {
+  if (error instanceof ApiError) {
+    return `${error.code}: ${error.message}`
+  }
+  return "폴더 선택 창을 열지 못했습니다. 백엔드가 실행 중인지 확인해 주세요."
 }

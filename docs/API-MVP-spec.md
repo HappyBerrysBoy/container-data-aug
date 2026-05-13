@@ -11,6 +11,7 @@
 ### 포함
 
 - 로컬 폴더 경로 기반 프로젝트 생성
+- 로컬 폴더 선택/열기 보조 API
 - 프로젝트 목록 조회
 - 프로젝트 상세 조회
 - 프로젝트 삭제
@@ -37,8 +38,11 @@
 ## 3. MVP 핵심 정책
 
 - 백엔드는 로컬에서 실행되는 FastAPI 서버다.
-- 프론트엔드는 로컬 폴더 절대경로를 백엔드에 전달한다.
+- 프로젝트 생성 화면은 백엔드의 로컬 폴더 선택 보조 API로 OS 폴더 선택 창을 열고, 선택된 절대경로를 `POST /api/projects`에 전달한다.
+- 사용자가 프로젝트 생성 화면에서 원본 폴더 경로를 직접 입력하는 UI는 제공하지 않는다.
+- 프로젝트 생성 화면의 `targetSpec`은 드롭다운으로 선택하며, 현재 선택지는 `ISO 6346` 하나만 제공한다.
 - 백엔드는 전달받은 폴더를 스캔해 프로젝트 메타데이터를 생성한다.
+- 결과 화면의 저장 폴더 확인 액션은 경로 텍스트를 별도 안내로 노출하지 않고 백엔드 보조 API로 OS 파일 탐색기를 연다.
 - v1 MVP에서는 모든 절대경로를 허용한다.
 - 증강 결과물은 로컬 출력 폴더에 저장한다.
 - 동시에 실행 가능한 증강 작업은 전역 1개다.
@@ -48,6 +52,8 @@
   - `runOcrLabeling`
   - `variantsPerImage`
   - `outputFolderName`
+- 프론트엔드 옵션 모달은 `workerCount`, `variantsPerImage`, `outputFolderName`만 노출한다.
+- 프론트엔드는 현재 `runOcrLabeling`을 사용자에게 선택받지 않고 `true`로 고정 전송한다.
 - `workerCount`를 생략하면 기본값은 `1`이다.
 - `workerCount` 값은 작업 옵션으로 저장/응답하지만, MVP runner는 실제로 항상 단일 실행 흐름으로 처리한다.
 - 실제 증강 구현에서는 하나의 원본 이미지에서 여러 개의 증강 결과물을 생성할 수 있으며, 원본 이미지 1장당 생성할 결과물 수는 `variantsPerImage`로 설정한다.
@@ -96,6 +102,9 @@
 | `PATH_NOT_FOUND` | `422` | 로컬 경로가 존재하지 않음 |
 | `PATH_NOT_READABLE` | `422` | 로컬 경로 읽기 권한 없음 |
 | `PATH_NOT_WRITABLE` | `422` | 출력 경로 쓰기 권한 없음 |
+| `FOLDER_DIALOG_UNAVAILABLE` | `500` | OS 폴더 선택 창을 사용할 수 없음 |
+| `FOLDER_DIALOG_FAILED` | `500` | OS 폴더 선택 창 실행 실패 |
+| `FOLDER_OPEN_FAILED` | `500` | OS 파일 탐색기 열기 실패 |
 | `TASK_ALREADY_RUNNING` | `409` | 이미 실행 중인 전역 작업 존재 |
 | `PROJECT_HAS_ACTIVE_TASK` | `409` | 프로젝트에 실행 중이거나 대기 중인 작업 존재 |
 | `TASK_NOT_RUNNING` | `409` | 중단할 수 없는 작업 상태 |
@@ -341,7 +350,66 @@ Response `204`: body 없음
 
 Response `200`: 갱신된 `Project`
 
-## 7.3 Augmentation Tasks
+## 7.3 Local Folders
+
+로컬 개발/운영 환경에서 브라우저 UI가 OS 파일 탐색기와 연동되도록 돕는 보조 API다. 프로젝트/작업 DB 모델에는 새 필드를 추가하지 않는다.
+
+### POST `/api/local-folders/select`
+
+백엔드가 실행 중인 머신에서 OS 폴더 선택 창을 열고, 사용자가 선택한 폴더의 절대경로를 반환한다.
+
+Request body 없음.
+
+Response `200`:
+
+```json
+{
+  "path": "/Users/name/datasets/container-images"
+}
+```
+
+사용자가 선택을 취소하면 `path`는 `null`이다.
+
+```json
+{
+  "path": null
+}
+```
+
+에러:
+
+- OS 폴더 선택 창을 사용할 수 없으면 `500 FOLDER_DIALOG_UNAVAILABLE`.
+- 폴더 선택 창 실행이 실패하면 `500 FOLDER_DIALOG_FAILED`.
+
+### POST `/api/local-folders/open`
+
+백엔드가 실행 중인 머신의 OS 파일 탐색기로 지정 폴더를 연다.
+
+Request:
+
+```json
+{
+  "path": "/Users/name/datasets/container-images-augmented"
+}
+```
+
+검증:
+
+- `path`는 존재하는 디렉터리여야 한다. 없으면 `422 PATH_NOT_FOUND`.
+
+Response `200`:
+
+```json
+{
+  "opened": true
+}
+```
+
+에러:
+
+- OS 파일 탐색기 실행이 실패하면 `500 FOLDER_OPEN_FAILED`.
+
+## 7.4 Augmentation Tasks
 
 ### POST `/api/projects/{projectId}/augmentation-tasks`
 
@@ -365,6 +433,7 @@ Validation:
 - `workerCount`를 생략하면 기본값은 `1`이다. 값을 보내면 1 이상이어야 한다.
 - `variantsPerImage`를 생략하면 기본값은 `1`이다. 값을 보내면 1 이상 90 이하여야 한다. 범위 밖은 `422 VALIDATION_ERROR`.
 - `outputFolderName`은 비어 있으면 안 된다.
+- `runOcrLabeling`은 호환용 저장 필드이며 현재 프론트엔드에서는 선택 UI를 제공하지 않고 `true`로 고정 전송한다.
 - 백엔드가 출력 폴더를 생성하거나 쓸 수 있어야 한다.
 
 Response `201`: `AugmentationTask`
@@ -446,10 +515,12 @@ Response `200`: `AugmentationResult`
 
 ### 8.2 프로젝트 생성
 
-1. 사용자가 프로젝트 생성 화면에서 로컬 폴더 경로, 이름, 설명을 입력한다.
-2. 프론트엔드가 `POST /api/projects`를 호출한다.
-3. 백엔드는 폴더를 스캔하고 프로젝트를 생성한다.
-4. 프론트엔드는 응답을 사이드바 목록과 프로젝트 상세 화면에 반영한다.
+1. 사용자가 프로젝트 생성 화면에서 `폴더 선택` 버튼을 누른다.
+2. 프론트엔드가 `POST /api/local-folders/select`를 호출하고, 백엔드는 OS 폴더 선택 창을 연다.
+3. 사용자가 폴더를 선택하면 프론트엔드는 선택된 절대경로를 화면에 표시하고, 이름과 설명을 입력받는다. 타겟 규격은 `ISO 6346` 단일 옵션 드롭다운으로 선택한다.
+4. 프론트엔드가 선택된 `sourceFolderPath`로 `POST /api/projects`를 호출한다.
+5. 백엔드는 폴더를 스캔하고 프로젝트를 생성한다.
+6. 프론트엔드는 응답을 사이드바 목록과 프로젝트 상세 화면에 반영한다.
 
 ### 8.2.1 프로젝트 폴더 재스캔
 
@@ -461,7 +532,7 @@ Response `200`: `AugmentationResult`
 ### 8.3 증강 시작
 
 1. 사용자가 프로젝트 상세에서 `증강 프로세스 시작`을 누른다.
-2. 옵션 모달에서 `workerCount`, `runOcrLabeling`, `variantsPerImage`, `outputFolderName`을 입력한다. `workerCount`와 `variantsPerImage`를 생략하면 기본값은 각각 `1`이다.
+2. 옵션 모달에서 `workerCount`, `variantsPerImage`, `outputFolderName`을 입력한다. 프론트엔드는 `runOcrLabeling: true`를 함께 전송한다. `workerCount`와 `variantsPerImage`를 생략하면 기본값은 각각 `1`이다.
 3. 프론트엔드가 `POST /api/projects/{projectId}/augmentation-tasks`를 호출한다.
 4. 성공하면 task ID를 저장하고 증강 수행 화면으로 이동한다.
 
@@ -475,9 +546,9 @@ Response `200`: `AugmentationResult`
 ### 8.5 결과 표시
 
 1. 프론트엔드가 `AugmentationResult`를 표시한다.
-2. `outputFolderPath`를 저장 폴더 경로로 보여준다.
-3. `generatedImageCount`를 실제 생성된 증강 결과물 수로 보여준다.
-4. MVP에서는 브라우저가 OS 폴더를 직접 열지 않는다.
+2. `generatedImageCount`를 실제 생성된 증강 결과물 수로 보여준다.
+3. 사용자가 `저장 폴더 위치 확인`을 누르면 프론트엔드가 `POST /api/local-folders/open`에 `outputFolderPath`를 전달하고, 백엔드가 OS 파일 탐색기로 결과 폴더를 연다.
+4. 결과 화면은 저장 폴더 경로를 별도 안내 문구로 노출하지 않는다.
 
 ## 9. MVP 구현 순서
 
@@ -504,21 +575,22 @@ Response `200`: `AugmentationResult`
    - `POST /api/augmentation-tasks/{taskId}/stop`
    - `GET /api/augmentation-tasks/{taskId}/result`
 6. 최소 증강 처리 구현
-   - MVP 첫 구현은 원본 이미지 복사와 출력 폴더 생성만으로 시작 가능
-   - 이후 실제 augmentation/OCR 처리로 교체
+   - 현재 구현은 CRAFT/GLM-OCR 기반 문자 인식 후 셔플 증강 이미지를 생성한다.
+   - 개별 이미지 인식/셔플 실패는 해당 이미지 실패로 집계하고 다음 이미지를 계속 처리한다.
 7. 프론트엔드 더미 상태 제거
    - 프로젝트 생성/목록/상세 API 연동
    - 작업 시작/진행 polling/결과 API 연동
+   - 로컬 폴더 선택/열기 보조 API 연동
 
 ## 10. MVP 검증 기준
 
-- 존재하는 로컬 이미지 폴더 경로로 프로젝트를 생성할 수 있다.
+- OS 폴더 선택 창에서 선택한 로컬 이미지 폴더 경로로 프로젝트를 생성할 수 있다.
 - 앱 초기 실행 시 기존 프로젝트 목록을 불러와 사이드바에 표시할 수 있다.
 - 프로젝트 목록과 상세 조회가 동작한다.
 - 프로젝트 상세에서 증강 작업을 시작할 수 있다.
 - 실행 중 작업이 있을 때 새 작업 시작은 `409 TASK_ALREADY_RUNNING`을 반환한다.
 - 프론트엔드 polling으로 진행률이 갱신된다.
-- 작업 완료 후 결과 화면에서 전체/성공/실패 수와 출력 폴더 경로를 볼 수 있다.
+- 작업 완료 후 결과 화면에서 전체/성공/실패 수를 볼 수 있고, 저장 폴더 확인 버튼으로 OS 파일 탐색기에서 출력 폴더를 열 수 있다.
 - `variantsPerImage`를 2 이상으로 설정하면 정상 처리된 원본 이미지마다 해당 개수만큼 셔플 결과 생성을 시도하고, 실제 생성 파일 수가 `generatedImageCount`에 반영된다.
 - `variantsPerImage`에 `91` 이상 또는 `0` 이하 값을 보내면 `422 VALIDATION_ERROR`를 반환한다.
 - 작업 중단 시 상태가 `STOPPED`가 된다.

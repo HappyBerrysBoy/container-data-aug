@@ -8,7 +8,6 @@ import {
   Loader2,
   Play,
   RefreshCw,
-  Tags,
   Trash2,
 } from "lucide-react"
 import type { ReactNode } from "react"
@@ -182,7 +181,7 @@ export function ProjectDetailView({
 
         <Separator />
 
-        <div className="grid gap-4 p-5 md:grid-cols-3">
+        <div className="grid gap-4 p-5 md:grid-cols-2">
           <ProjectMetric
             icon={<ImageIcon className="size-4" aria-hidden="true" />}
             label="파일 개수"
@@ -192,11 +191,6 @@ export function ProjectDetailView({
             icon={<HardDrive className="size-4" aria-hidden="true" />}
             label="전체 용량"
             value={formatBytes(project.totalSizeBytes)}
-          />
-          <ProjectMetric
-            icon={<Tags className="size-4" aria-hidden="true" />}
-            label="라벨 포함 여부"
-            value={project.hasLabels ? "라벨 포함" : "라벨 미포함"}
           />
         </div>
 

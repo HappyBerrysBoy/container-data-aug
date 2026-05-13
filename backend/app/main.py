@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import augmentation_tasks, health, projects
+from app.api.routes import augmentation_tasks, health, local_folders, projects
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.repositories import tasks_repo
@@ -70,6 +70,7 @@ def create_app(
     app.include_router(health.router, prefix="/api")
     app.include_router(projects.router, prefix="/api")
     app.include_router(augmentation_tasks.router, prefix="/api")
+    app.include_router(local_folders.router, prefix="/api")
 
     return app
 

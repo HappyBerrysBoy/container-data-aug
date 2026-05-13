@@ -182,3 +182,19 @@ export const augmentationTasks = {
       { signal },
     ),
 }
+
+/** Local desktop helpers exposed by the local backend. */
+export const localFolders = {
+  select: (signal?: AbortSignal) =>
+    request<{ path: string | null }>("/local-folders/select", {
+      method: "POST",
+      signal,
+    }),
+
+  open: (path: string, signal?: AbortSignal) =>
+    request<{ opened: boolean }>("/local-folders/open", {
+      method: "POST",
+      json: { path },
+      signal,
+    }),
+}

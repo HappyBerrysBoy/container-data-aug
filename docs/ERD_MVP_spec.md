@@ -22,7 +22,7 @@ augmentation_tasks
 
 `projects` 테이블은 사용자가 등록한 로컬 이미지 폴더 기반 프로젝트 정보를 저장한다.
 
-프로젝트 생성 시 백엔드는 사용자가 입력한 `sourceFolderPath`를 스캔해서 이미지 개수, 전체 용량, 라벨 존재 여부를 계산한 뒤 저장한다.
+프로젝트 생성 시 백엔드는 사용자가 OS 폴더 선택 창에서 선택해 전달한 `sourceFolderPath`를 스캔해서 이미지 개수, 전체 용량, 라벨 존재 여부를 계산한 뒤 저장한다.
 
 ---
 
@@ -93,7 +93,7 @@ augmentation_tasks
 | `status` | 작업 상태 |
 | `progress` | 진행률. 0~100 |
 | `worker_count` | 요청된 작업 워커 수. MVP runner는 값을 저장만 하고 단일 실행 흐름으로 처리 |
-| `run_ocr_labeling` | OCR 라벨링 수행 여부 |
+| `run_ocr_labeling` | 호환용 저장 필드. 현재 runner 실행 여부를 제어하지 않음 |
 | `variants_per_image` | 원본 이미지 1장당 생성할 증강 결과 수 옵션 |
 | `output_folder_name` | 출력 폴더 이름 |
 | `output_folder_path` | 출력 폴더 절대경로 |
@@ -180,8 +180,8 @@ DONE
 | `outputFolderPath` | `output_folder_path` |
 | `completedAt` | `completed_at` |
 
-`generatedImageCount`는 실제 디스크에 생성된 파일 수다. MVP copy runner는
-`variantsPerImage`가 2 이상이어도 원본 이미지 1장당 복사 파일 1개만 생성한다.
+`generatedImageCount`는 실제 디스크에 생성된 파일 수다. 현재 shuffle runner는
+정상 처리된 원본 이미지마다 `variantsPerImage`개까지 셔플 결과 생성을 시도한다.
 
 ---
 

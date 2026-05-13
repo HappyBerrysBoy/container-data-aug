@@ -7,12 +7,10 @@ import {
   ImageIcon,
   Layers,
   Loader2,
-  Tags,
 } from "lucide-react"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -23,7 +21,6 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Separator } from "@/components/ui/separator"
 import { pathBasename } from "@/lib/format"
 import type {
   AugmentationTaskCreateRequest,
@@ -49,7 +46,7 @@ type AugmentationOptionsDialogProps = {
 
 /**
  * Modal that collects the three MVP augmentation options
- * (workerCount, runOcrLabeling, outputFolderName) before AppShell submits
+ * (workerCount, variantsPerImage, outputFolderName) before AppShell submits
  * `POST /api/projects/{id}/augmentation-tasks`.
  *
  * The actual form lives in `OptionsForm`, mounted only while `open` is true.
@@ -104,7 +101,6 @@ function OptionsForm({
   onStart,
 }: OptionsFormProps) {
   const [workerCount, setWorkerCount] = useState(DEFAULT_WORKER_COUNT)
-  const [runOcrLabeling, setRunOcrLabeling] = useState(true)
   const [outputFolderName, setOutputFolderName] = useState(() =>
     defaultOutputFolderName(project),
   )
@@ -149,7 +145,7 @@ function OptionsForm({
     if (!trimmed) return
     onStart({
       workerCount,
-      runOcrLabeling,
+      runOcrLabeling: true,
       outputFolderName: trimmed,
       variantsPerImage,
     })
@@ -255,27 +251,6 @@ function OptionsForm({
             경로가 아닌 폴더명만 입력해 주세요.
           </p>
         </div>
-
-        <Separator />
-
-        <label className="flex cursor-pointer items-start gap-3 rounded-lg border bg-background p-4">
-          <Checkbox
-            checked={runOcrLabeling}
-            onCheckedChange={(checked) => setRunOcrLabeling(checked)}
-            aria-label="OCR 호환 옵션 저장"
-            className="mt-0.5"
-            disabled={isStarting}
-          />
-          <span className="grid gap-1">
-            <span className="flex items-center gap-2 text-sm font-medium">
-              <Tags className="size-4" aria-hidden="true" />
-              OCR 호환 옵션 저장
-            </span>
-            <span className="text-xs leading-5 text-muted-foreground">
-              현재 셔플 runner는 항상 OCR을 사용하며, 이 값은 결과 응답 호환을 위해 저장됩니다.
-            </span>
-          </span>
-        </label>
 
         {errorMessage ? (
           <div

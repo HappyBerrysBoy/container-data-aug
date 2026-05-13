@@ -44,6 +44,7 @@ type ConnectionState = "checking" | "connected" | "error"
 
 /** How often `GET /api/augmentation-tasks/{id}` is polled while RUNNING. */
 const POLL_INTERVAL_MS = 1000
+const DEFAULT_TARGET_SPEC = "ISO 6346"
 
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(false)
@@ -74,7 +75,7 @@ export function AppShell() {
   const [sourceFolderPath, setSourceFolderPath] = useState("")
   const [projectName, setProjectName] = useState("")
   const [projectDescription, setProjectDescription] = useState("")
-  const [targetSpec, setTargetSpec] = useState("")
+  const [targetSpec, setTargetSpec] = useState(DEFAULT_TARGET_SPEC)
   const [isCreating, setIsCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
@@ -338,7 +339,7 @@ export function AppShell() {
     setSourceFolderPath("")
     setProjectName("")
     setProjectDescription("")
-    setTargetSpec("")
+    setTargetSpec(DEFAULT_TARGET_SPEC)
     setCreateError(null)
     setViewMode("create")
   }
@@ -394,7 +395,7 @@ export function AppShell() {
         title: projectName.trim(),
         description: projectDescription.trim() || undefined,
         sourceFolderPath: sourceFolderPath.trim(),
-        targetSpec: targetSpec.trim() || undefined,
+        targetSpec: targetSpec.trim() || DEFAULT_TARGET_SPEC,
       })
       setProjects((current) => [created, ...current])
       setSelectedProjectDetail(null)

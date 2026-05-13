@@ -4,6 +4,7 @@
 
 - 기존 copy-only runner를 `backend/app/augmentation/shuffle.py`의 `augment()` 기반 runner로 교체한다.
 - `runOcrLabeling`은 당장은 호환용 저장 필드로 유지하고 실행 분기에는 사용하지 않는다. 작업은 항상 셔플을 시도한다.
+- 프론트엔드 옵션 모달에서는 `runOcrLabeling` 체크박스를 노출하지 않고, API 호환을 위해 `true`로 고정 전송한다.
 - CRAFT/GLM reader 초기화 실패는 작업 전체 실패로 처리한다.
 - 개별 이미지의 OCR/셔플 실패 또는 0개 생성은 해당 이미지만 실패로 집계하고 다음 이미지를 계속 처리한다.
 
