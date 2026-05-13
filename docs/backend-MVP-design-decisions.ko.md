@@ -133,7 +133,7 @@ FastAPI에 내장된 OpenAPI 지원을 사용합니다.
 - OpenAPI JSON: `/openapi.json`
 - API 제목: `Container Image Augmentation API`
 - API 버전: `0.1.0`
-- 라우트 태그: `health`, `projects`, `augmentation-tasks`, `local-folders`
+- 라우트 태그: `health`, `projects`, `augmentation-tasks`, `local-folders`, `runtime-models`
 - 응답 모델과 공통 에러 응답 스키마를 선언합니다.
 
 ### 8.1 로컬 폴더 선택/열기 보조 API
@@ -146,6 +146,14 @@ FastAPI에 내장된 OpenAPI 지원을 사용합니다.
 - 이 API는 UI 편의를 위한 로컬 헬퍼이며, 프로젝트/작업 DB 스키마에는 영향을 주지 않습니다.
 - 프로젝트 생성 API는 계속 `sourceFolderPath`를 받습니다. 다만 프론트엔드 생성 화면은 직접 입력 대신 이 헬퍼로 선택한 값을 전송합니다.
 - 프론트엔드 생성 화면의 `targetSpec`은 자유 입력이 아니라 드롭다운이며, 현재 선택지는 `ISO 6346` 하나입니다.
+
+### 8.2 Runtime 모델 준비 API
+
+- 엔드포인트: `POST /api/runtime-models/craft/prepare`, `POST /api/runtime-models/glm/prepare`
+- 증강 task 생성 전에 프론트엔드가 순서대로 호출하여 CRAFT/GLM-OCR 초기 다운로드와 로드를 명시적으로 보여줍니다.
+- 성공 응답은 `{ "model": "craft" | "glm", "status": "READY" }`입니다.
+- 다운로드, 캐시 접근, 런타임 초기화 실패는 `500 MODEL_PREPARATION_FAILED`로 반환합니다.
+- 이 API는 DB task 상태를 만들지 않으며, 실제 task 생성은 기존 `POST /api/projects/{projectId}/augmentation-tasks`에서만 수행합니다.
 
 ### 9. CORS
 

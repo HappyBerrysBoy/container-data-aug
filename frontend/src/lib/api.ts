@@ -198,3 +198,18 @@ export const localFolders = {
       signal,
     }),
 }
+
+/** Runtime OCR model preparation helpers. */
+export const runtimeModels = {
+  prepareCraft: (signal?: AbortSignal) =>
+    request<{ model: "craft"; status: "READY" }>(
+      "/runtime-models/craft/prepare",
+      { method: "POST", signal },
+    ),
+
+  prepareGlm: (signal?: AbortSignal) =>
+    request<{ model: "glm"; status: "READY" }>(
+      "/runtime-models/glm/prepare",
+      { method: "POST", signal },
+    ),
+}

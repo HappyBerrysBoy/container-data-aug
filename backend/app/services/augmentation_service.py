@@ -204,6 +204,24 @@ class AugmentationService:
             "completed_at": task["completed_at"],
         }
 
+    def prepare_runtime_model(self, model: str) -> dict[str, str]:
+        reader = glm_ocr.get_craft_glm_reader()
+        try:
+            if model == "craft":
+                reader.prepare_craft()
+            elif model == "glm":
+                reader.prepare_glm()
+            else:
+                raise ValueError(f"Unknown runtime model: {model}")
+        except Exception as exc:
+            raise ApiError(
+                "MODEL_PREPARATION_FAILED",
+                "Runtime model preparation failed",
+                status_code=500,
+                details={"model": model},
+            ) from exc
+        return {"model": model, "status": "READY"}
+
     def _prepare_shuffle_reader(self) -> Any:
         reader = glm_ocr.get_craft_glm_reader()
         prepare = getattr(reader, "prepare", None)

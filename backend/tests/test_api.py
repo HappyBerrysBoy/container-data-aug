@@ -298,6 +298,56 @@ def test_reader_initialization_failure_marks_task_failed(
         assert task["generatedImageCount"] == 0
 
 
+def test_runtime_model_prepare_endpoints_use_cached_reader(
+    db: PostgresDatabase, monkeypatch
+) -> None:
+    calls = []
+
+    class FakeReader:
+        def prepare_craft(self) -> None:
+            calls.append("craft")
+
+        def prepare_glm(self) -> None:
+            calls.append("glm")
+
+    monkeypatch.setattr(
+        augmentation_service.glm_ocr,
+        "get_craft_glm_reader",
+        lambda: FakeReader(),
+    )
+
+    with make_client(db) as client:
+        craft_response = client.post("/api/runtime-models/craft/prepare")
+        glm_response = client.post("/api/runtime-models/glm/prepare")
+
+    assert craft_response.status_code == 200
+    assert craft_response.json() == {"model": "craft", "status": "READY"}
+    assert glm_response.status_code == 200
+    assert glm_response.json() == {"model": "glm", "status": "READY"}
+    assert calls == ["craft", "glm"]
+
+
+def test_runtime_model_prepare_failure_returns_error(
+    db: PostgresDatabase, monkeypatch
+) -> None:
+    class FailingReader:
+        def prepare_craft(self) -> None:
+            raise RuntimeError("download failed")
+
+    monkeypatch.setattr(
+        augmentation_service.glm_ocr,
+        "get_craft_glm_reader",
+        lambda: FailingReader(),
+    )
+
+    with make_client(db) as client:
+        response = client.post("/api/runtime-models/craft/prepare")
+
+    assert response.status_code == 500
+    assert_error(response, "MODEL_PREPARATION_FAILED")
+    assert response.json()["error"]["details"] == {"model": "craft"}
+
+
 def test_active_task_blocks_second_task_and_result_until_finished(
     tmp_path: Path, db: PostgresDatabase
 ) -> None:

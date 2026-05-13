@@ -105,6 +105,7 @@
 | `FOLDER_DIALOG_UNAVAILABLE` | `500` | OS 폴더 선택 창을 사용할 수 없음 |
 | `FOLDER_DIALOG_FAILED` | `500` | OS 폴더 선택 창 실행 실패 |
 | `FOLDER_OPEN_FAILED` | `500` | OS 파일 탐색기 열기 실패 |
+| `MODEL_PREPARATION_FAILED` | `500` | CRAFT/GLM-OCR 런타임 모델 준비 실패 |
 | `TASK_ALREADY_RUNNING` | `409` | 이미 실행 중인 전역 작업 존재 |
 | `PROJECT_HAS_ACTIVE_TASK` | `409` | 프로젝트에 실행 중이거나 대기 중인 작업 존재 |
 | `TASK_NOT_RUNNING` | `409` | 중단할 수 없는 작업 상태 |
@@ -409,7 +410,41 @@ Response `200`:
 
 - OS 파일 탐색기 실행이 실패하면 `500 FOLDER_OPEN_FAILED`.
 
-## 7.4 Augmentation Tasks
+## 7.4 Runtime Models
+
+증강 task를 만들기 전에 CRAFT/GLM-OCR 초기 다운로드와 로드를 명시적으로 수행하기 위한 보조 API다. DB task 상태에는 새 값을 추가하지 않고, 프론트엔드는 이 API의 응답을 기다리는 동안 중앙 모델 준비 팝업을 표시한다.
+
+### POST `/api/runtime-models/craft/prepare`
+
+CRAFT text detection weight와 refiner weight를 준비한다. 이미 캐시되어 있으면 즉시 `READY`를 반환한다.
+
+Response `200`:
+
+```json
+{
+  "model": "craft",
+  "status": "READY"
+}
+```
+
+### POST `/api/runtime-models/glm/prepare`
+
+Hugging Face Transformers 기반 GLM-OCR processor/model을 준비한다. 이미 캐시되어 있으면 즉시 `READY`를 반환한다.
+
+Response `200`:
+
+```json
+{
+  "model": "glm",
+  "status": "READY"
+}
+```
+
+에러:
+
+- 모델 다운로드, 캐시 접근, 또는 런타임 초기화가 실패하면 `500 MODEL_PREPARATION_FAILED`.
+
+## 7.5 Augmentation Tasks
 
 ### POST `/api/projects/{projectId}/augmentation-tasks`
 
@@ -533,8 +568,10 @@ Response `200`: `AugmentationResult`
 
 1. 사용자가 프로젝트 상세에서 `증강 프로세스 시작`을 누른다.
 2. 옵션 모달에서 `workerCount`, `variantsPerImage`, `outputFolderName`을 입력한다. 프론트엔드는 `runOcrLabeling: true`를 함께 전송한다. `workerCount`와 `variantsPerImage`를 생략하면 기본값은 각각 `1`이다.
-3. 프론트엔드가 `POST /api/projects/{projectId}/augmentation-tasks`를 호출한다.
-4. 성공하면 task ID를 저장하고 증강 수행 화면으로 이동한다.
+3. 프론트엔드는 중앙 모델 준비 팝업을 띄우고 `POST /api/runtime-models/craft/prepare`, `POST /api/runtime-models/glm/prepare`를 순서대로 호출한다.
+4. 각 모델 준비 중에는 spinner를, 완료 시에는 check 표시를 보여준다. 두 모델이 모두 `READY`이면 약 1초 뒤 팝업을 닫는다.
+5. 프론트엔드가 `POST /api/projects/{projectId}/augmentation-tasks`를 호출한다.
+6. 성공하면 task ID를 저장하고 증강 수행 화면으로 이동한다.
 
 ### 8.4 진행 polling
 
@@ -569,6 +606,8 @@ Response `200`: `AugmentationResult`
    - `POST /api/projects/{projectId}/rescan`
 5. 증강 작업 API 구현
    - 전역 작업 lock
+   - `POST /api/runtime-models/craft/prepare`
+   - `POST /api/runtime-models/glm/prepare`
    - `POST /api/projects/{projectId}/augmentation-tasks`
    - `GET /api/augmentation-tasks/active`
    - `GET /api/augmentation-tasks/{taskId}`

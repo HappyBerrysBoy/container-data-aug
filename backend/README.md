@@ -43,6 +43,8 @@ The file is generated at runtime and stores project metadata, augmentation task 
 - `GET /api/projects/{projectId}`
 - `DELETE /api/projects/{projectId}`
 - `POST /api/projects/{projectId}/rescan`
+- `POST /api/runtime-models/craft/prepare`
+- `POST /api/runtime-models/glm/prepare`
 - `POST /api/projects/{projectId}/augmentation-tasks`
 - `GET /api/augmentation-tasks/active`
 - `GET /api/augmentation-tasks/{taskId}`
@@ -59,7 +61,7 @@ The shuffle runner uses CRAFT bbox detection with Hugging Face Transformers GLM-
 uv sync --extra cuda
 ```
 
-By default the reader loads `zai-org/GLM-OCR` through the Hugging Face cache on first use. Pass a local model directory through `get_craft_glm_reader(model_id_or_path="/path/to/model", local_files_only=True)` for offline runs. The default device is CUDA; if CUDA is unavailable, the reader warns and falls back to CPU.
+By default the reader loads CRAFT weights and `zai-org/GLM-OCR` through their local caches on first use. The frontend calls the runtime prepare endpoints before creating an augmentation task so users see an explicit model preparation dialog during the initial download. Pass a local model directory through `get_craft_glm_reader(model_id_or_path="/path/to/model", local_files_only=True)` for offline runs. The default device is CUDA; if CUDA is unavailable, the reader warns and falls back to CPU.
 
 Real model tests are opt-in because they require a cached model or network access:
 

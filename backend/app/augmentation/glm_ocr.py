@@ -217,7 +217,15 @@ class CraftGlmReader:
 
     def prepare(self) -> None:
         """Load the runtime pieces so setup errors happen before image work."""
+        self.prepare_craft()
+        self.prepare_glm()
+
+    def prepare_craft(self) -> None:
+        """Load CRAFT text detection weights and runtime."""
         self._get_craft()
+
+    def prepare_glm(self) -> None:
+        """Load the GLM-OCR processor/model through Transformers."""
         self._get_glm_backend()
 
     def _craft_boxes(self, image: np.ndarray, min_area: int = 5, padding: int = 6) -> list[list[int]]:

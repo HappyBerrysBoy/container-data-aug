@@ -6,6 +6,10 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { AugmentationOptionsDialog } from "@/components/augmentation-options-dialog"
 import { ConnectionBanner } from "@/components/connection-banner"
 import {
+  ModelPreparationDialog,
+  type ModelPreparationState,
+} from "@/components/model-preparation-dialog"
+import {
   ProjectSidebar,
   type ProjectListLoadState,
 } from "@/components/project-sidebar"
@@ -28,6 +32,7 @@ import {
   augmentationTasks as tasksApi,
   health,
   projects as projectsApi,
+  runtimeModels,
 } from "@/lib/api"
 import type {
   AugmentationResult,
@@ -45,6 +50,13 @@ type ConnectionState = "checking" | "connected" | "error"
 /** How often `GET /api/augmentation-tasks/{id}` is polled while RUNNING. */
 const POLL_INTERVAL_MS = 1000
 const DEFAULT_TARGET_SPEC = "ISO 6346"
+const MODEL_PREPARATION_DONE_HOLD_MS = 1000
+const AUGMENTATION_DONE_HOLD_MS = 1000
+
+const MODEL_PREPARATION_INITIAL_STATE: ModelPreparationState = {
+  craft: "waiting",
+  glm: "waiting",
+}
 
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(false)
@@ -91,6 +103,9 @@ export function AppShell() {
   // Augmentation flow state (task [5]).
   const [optionsDialogOpen, setOptionsDialogOpen] = useState(false)
   const [isStartingAugmentation, setIsStartingAugmentation] = useState(false)
+  const [modelPreparationOpen, setModelPreparationOpen] = useState(false)
+  const [modelPreparationState, setModelPreparationState] =
+    useState<ModelPreparationState>(MODEL_PREPARATION_INITIAL_STATE)
   const [augmentationStartError, setAugmentationStartError] = useState<
     string | null
   >(null)
@@ -278,8 +293,11 @@ export function AppShell() {
 
     const taskId = activeTaskId
     let cancelled = false
+    let terminalTransitionStarted = false
 
     const poll = async () => {
+      if (terminalTransitionStarted) return
+
       try {
         const task = await tasksApi.get(taskId)
         if (cancelled) return
@@ -294,7 +312,10 @@ export function AppShell() {
           selectedProjectIdRef.current === task.projectId
 
         if (task.status === "DONE") {
+          terminalTransitionStarted = true
           try {
+            await delay(AUGMENTATION_DONE_HOLD_MS)
+            if (cancelled) return
             const result = await tasksApi.result(taskId)
             if (cancelled) return
             setAugmentationResult(result)
@@ -313,6 +334,7 @@ export function AppShell() {
             }
           }
         } else if (task.status === "STOPPED" || task.status === "FAILED") {
+          terminalTransitionStarted = true
           setActiveTask(null)
           setActiveTaskId(null)
           if (userIsWatching) {
@@ -502,6 +524,21 @@ export function AppShell() {
     setOptionsDialogOpen(true)
   }
 
+  async function prepareRuntimeModels() {
+    setModelPreparationState(MODEL_PREPARATION_INITIAL_STATE)
+    setModelPreparationOpen(true)
+
+    setModelPreparationState({ craft: "running", glm: "waiting" })
+    await runtimeModels.prepareCraft()
+
+    setModelPreparationState({ craft: "done", glm: "running" })
+    await runtimeModels.prepareGlm()
+
+    setModelPreparationState({ craft: "done", glm: "done" })
+    await delay(MODEL_PREPARATION_DONE_HOLD_MS)
+    setModelPreparationOpen(false)
+  }
+
   /**
    * Start augmentation. POSTs the options to the backend, saves the
    * returned task id, and lets the polling effect pick it up.
@@ -517,6 +554,7 @@ export function AppShell() {
     setAugmentationActionError(null)
 
     try {
+      await prepareRuntimeModels()
       const task = await tasksApi.start(selectedProjectId, config)
       setActiveTask(task)
       setAugmentationResult(null)
@@ -526,6 +564,7 @@ export function AppShell() {
     } catch (error) {
       setAugmentationStartError(describeStartError(error))
     } finally {
+      setModelPreparationOpen(false)
       setIsStartingAugmentation(false)
     }
   }
@@ -668,6 +707,11 @@ export function AppShell() {
         onStart={startAugmentation}
       />
 
+      <ModelPreparationDialog
+        open={modelPreparationOpen}
+        state={modelPreparationState}
+      />
+
       <Dialog
         open={deleteConfirmOpen}
         onOpenChange={(open) => {
@@ -716,6 +760,12 @@ export function AppShell() {
       </Dialog>
     </div>
   )
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, milliseconds)
+  })
 }
 
 // =============================================================================
@@ -794,6 +844,8 @@ function describeStartError(error: unknown): string {
         return "이미 실행 중인 증강 작업이 있습니다. 끝난 뒤 다시 시도해 주세요."
       case "PATH_NOT_WRITABLE":
         return "출력 폴더를 만들거나 쓸 수 없습니다. 권한을 확인해 주세요."
+      case "MODEL_PREPARATION_FAILED":
+        return "CRAFT/GLM-OCR 모델을 준비하지 못했습니다. 네트워크 연결과 모델 캐시 권한을 확인해 주세요."
       case "VALIDATION_ERROR":
         return error.message || "입력값이 올바르지 않습니다."
       default:
