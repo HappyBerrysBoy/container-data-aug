@@ -4,9 +4,12 @@ import re
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
+from random import Random
 
 import numpy as np
 from PIL import Image
+
+_ShuffleCombo = tuple[int, int, int, int]
 
 
 @dataclass(frozen=True)
@@ -270,8 +273,35 @@ def _save_craft_on_otsu_debug(mask: Image.Image, chars: list[CharBox]) -> None:
     print(f"[CRAFT ON OTSU] {out_path.resolve()}")
 
 
+def _build_shuffle_combos(part0_size: int, part1_size: int) -> list[_ShuffleCombo]:
+    return [
+        (i0, j0, i1, j1)
+        for i0, j0 in combinations(range(part0_size), 2)
+        for i1, j1 in combinations(range(part1_size), 2)
+    ]
 
-def augment(src: str | Path, dst_dir: Path, reader, count: int = 90) -> list[Path]:
+
+def _select_shuffle_combos(
+    combos: list[_ShuffleCombo],
+    count: int,
+    *,
+    randomize: bool = True,
+    seed: int | None = None,
+) -> list[_ShuffleCombo]:
+    if not randomize:
+        return combos[:count]
+    return Random(seed).sample(combos, k=count)
+
+
+def augment(
+    src: str | Path,
+    dst_dir: Path,
+    reader,
+    count: int = 90,
+    *,
+    randomize: bool = True,
+    seed: int | None = None,
+) -> list[Path]:
     """ISO 6346 Part0×Part1 글자 쌍 스왑 조합으로 증강 이미지 생성.
 
     Part0 (오너코드 4자):  C(4,2) =  6가지 스왑
@@ -320,13 +350,15 @@ def augment(src: str | Path, dst_dir: Path, reader, count: int = 90) -> list[Pat
     img_arr = np.array(image)
     seq = 1
 
-    all_combos = [
-        (i0, j0, i1, j1)
-        for i0, j0 in combinations(range(part0_size), 2)
-        for i1, j1 in combinations(range(part1_size), 2)
-    ]
+    all_combos = _build_shuffle_combos(part0_size, part1_size)
+    selected_combos = _select_shuffle_combos(
+        all_combos,
+        count,
+        randomize=randomize,
+        seed=seed,
+    )
 
-    for i0, j0, i1, j1 in all_combos[:count]:
+    for i0, j0, i1, j1 in selected_combos:
         out_arr = np.array(cleared.copy())
 
         src_of = {
