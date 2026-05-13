@@ -51,7 +51,8 @@
 - `workerCount`를 생략하면 기본값은 `1`이다.
 - `workerCount` 값은 작업 옵션으로 저장/응답하지만, MVP runner는 실제로 항상 단일 실행 흐름으로 처리한다.
 - 실제 증강 구현에서는 하나의 원본 이미지에서 여러 개의 증강 결과물을 생성할 수 있으며, 원본 이미지 1장당 생성할 결과물 수는 `variantsPerImage`로 설정한다.
-- MVP copy runner는 `variantsPerImage`를 저장만 하고 실제 variant 파일을 생성하지 않는다.
+- 현재 runner는 CRAFT/GLM-OCR로 문자를 인식한 뒤 셔플 증강을 수행하며, 정상 처리된 원본 이미지마다 최대 `variantsPerImage`개의 결과 파일을 생성한다.
+- `runOcrLabeling`은 API 호환을 위해 저장하지만 현재 runner 실행 여부를 제어하지 않는다. 셔플은 항상 시도한다.
 - `variantsPerImage`는 `1` 이상 `90` 이하 범위로 제한한다. 범위 밖은 `422 VALIDATION_ERROR`를 반환한다.
 - 프론트엔드 옵션 모달은 `variantsPerImage`를 `1~90` 범위로 자동 클램프하여 입력한다.
 - `variantsPerImage`를 생략하면 기본값은 `1`이다.
@@ -178,7 +179,7 @@ MVP에서는 별도 `AugmentationConfig` 테이블을 만들지 않고 작업 ro
 | `status` | string | yes | `PENDING`, `RUNNING`, `STOPPED`, `FAILED`, `DONE` |
 | `progress` | number | yes | 0~100 진행률 |
 | `workerCount` | number | yes | 요청된 워커 수. MVP runner의 실제 병렬도는 항상 1 |
-| `runOcrLabeling` | boolean | yes | OCR 라벨링 수행 여부 |
+| `runOcrLabeling` | boolean | yes | 호환용 저장 필드. 현재 runner 실행 여부를 제어하지 않음 |
 | `variantsPerImage` | number | yes | 원본 이미지 1장당 생성할 증강 결과물 수 옵션 |
 | `processedCount` | number | yes | 처리된 이미지 수 |
 | `failedCount` | number | yes | 실패한 이미지 수 |
@@ -209,7 +210,7 @@ MVP에서는 별도 `AugmentationConfig` 테이블을 만들지 않고 작업 ro
 - `totalImageCount`, `successCount`, `failedCount`는 원본 이미지 기준 count다.
 - `generatedImageCount`는 실제 생성된 증강 결과 이미지 파일 수다.
 - 실제 증강 구현에서는 정상 처리된 원본 이미지마다 `variantsPerImage`개의 결과물이 생성되는 것이 기본 동작이다.
-- MVP copy runner에서는 원본 이미지 1장당 실제 복사 파일 1개만 생성하므로, `generatedImageCount`는 성공적으로 복사된 파일 수와 같다.
+- 현재 shuffle runner에서는 정상 처리된 원본 이미지마다 실제 저장된 셔플 결과 파일 수가 `generatedImageCount`에 누적된다.
 
 ## 7. MVP Endpoints
 
@@ -518,7 +519,7 @@ Response `200`: `AugmentationResult`
 - 실행 중 작업이 있을 때 새 작업 시작은 `409 TASK_ALREADY_RUNNING`을 반환한다.
 - 프론트엔드 polling으로 진행률이 갱신된다.
 - 작업 완료 후 결과 화면에서 전체/성공/실패 수와 출력 폴더 경로를 볼 수 있다.
-- `variantsPerImage`를 2 이상으로 설정하면 작업 옵션에 저장되고 결과 응답에 반영된다. MVP copy runner에서는 실제 variant 파일을 생성하지 않는다.
+- `variantsPerImage`를 2 이상으로 설정하면 정상 처리된 원본 이미지마다 해당 개수만큼 셔플 결과 생성을 시도하고, 실제 생성 파일 수가 `generatedImageCount`에 반영된다.
 - `variantsPerImage`에 `91` 이상 또는 `0` 이하 값을 보내면 `422 VALIDATION_ERROR`를 반환한다.
 - 작업 중단 시 상태가 `STOPPED`가 된다.
 - 원본 이미지 파일은 프로젝트 삭제로 삭제되지 않는다.

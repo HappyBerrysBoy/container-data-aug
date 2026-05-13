@@ -1,10 +1,10 @@
 import os
-import shutil
 from pathlib import Path
 from typing import Any
 
 from psycopg import errors
 
+from app.augmentation import glm_ocr, shuffle
 from app.core.errors import ApiError
 from app.repositories import projects_repo, tasks_repo
 from app.repositories.postgres import PostgresDatabase
@@ -96,24 +96,36 @@ class AugmentationService:
                     tasks_repo.finish(conn, task_id, "DONE", progress=100)
                     return
 
+                try:
+                    reader = self._prepare_shuffle_reader()
+                except Exception:
+                    tasks_repo.finish(conn, task_id, "FAILED")
+                    return
+
                 for image_file in scan.image_files:
                     current = tasks_repo.get_status(conn, task_id)
                     if current != "RUNNING":
                         return
 
-                    destination = output_folder / image_file.relative_path
+                    destination_dir = output_folder / image_file.relative_path.parent
                     try:
-                        destination.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(image_file.path, destination)
-                        copied = True
+                        saved = shuffle.augment(
+                            image_file.path,
+                            destination_dir,
+                            reader,
+                            count=task["variants_per_image"],
+                            randomize=True,
+                            seed=None,
+                            debug=False,
+                        )
                     except Exception:
-                        copied = False
+                        saved = []
 
                     after = tasks_repo.increment_counts(
                         conn,
                         task_id,
-                        failed_delta=0 if copied else 1,
-                        generated_delta=1 if copied else 0,
+                        failed_delta=0 if saved else 1,
+                        generated_delta=len(saved),
                     )
                     if after != "RUNNING":
                         return
@@ -191,6 +203,13 @@ class AugmentationService:
             "output_folder_path": task["output_folder_path"],
             "completed_at": task["completed_at"],
         }
+
+    def _prepare_shuffle_reader(self) -> Any:
+        reader = glm_ocr.get_craft_glm_reader()
+        prepare = getattr(reader, "prepare", None)
+        if callable(prepare):
+            prepare()
+        return reader
 
     def _validate_start_payload(self, payload: AugmentationTaskCreate) -> None:
         if payload.worker_count < 1:

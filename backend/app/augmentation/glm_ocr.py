@@ -215,6 +215,11 @@ class CraftGlmReader:
             )
         return self._craft
 
+    def prepare(self) -> None:
+        """Load the runtime pieces so setup errors happen before image work."""
+        self._get_craft()
+        self._get_glm_backend()
+
     def _craft_boxes(self, image: np.ndarray, min_area: int = 5, padding: int = 6) -> list[list[int]]:
         """CRAFT region score map → connected components → 글자 단위 bbox."""
         import cv2

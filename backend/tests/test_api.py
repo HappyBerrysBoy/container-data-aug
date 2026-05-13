@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.main import create_app
 from app.repositories.postgres import PostgresDatabase
+from app.services import augmentation_service
 
 
 @contextmanager
@@ -46,6 +47,66 @@ def assert_error(response, code: str) -> None:
     body = response.json()
     assert "error" in body
     assert body["error"]["code"] == code
+
+
+def patch_shuffle_runner(
+    monkeypatch,
+    *,
+    failed_filenames: set[str] | None = None,
+    reader_error: Exception | None = None,
+    prepare_error: Exception | None = None,
+) -> None:
+    failed = failed_filenames or set()
+
+    if reader_error is None:
+        class FakeReader:
+            def prepare(self) -> None:
+                if prepare_error is not None:
+                    raise prepare_error
+
+        monkeypatch.setattr(
+            augmentation_service.glm_ocr,
+            "get_craft_glm_reader",
+            lambda: FakeReader(),
+        )
+    else:
+
+        def raise_reader_error():
+            raise reader_error
+
+        monkeypatch.setattr(
+            augmentation_service.glm_ocr,
+            "get_craft_glm_reader",
+            raise_reader_error,
+        )
+
+    def fake_augment(
+        src,
+        dst_dir,
+        reader,
+        count=90,
+        *,
+        randomize=True,
+        seed=None,
+        debug=False,
+    ):
+        assert randomize is True
+        assert seed is None
+        assert debug is False
+        src_path = Path(src)
+        if src_path.name in failed:
+            return []
+
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        saved = []
+        for index in range(1, count + 1):
+            out_path = dst_dir / f"{src_path.stem}_{index}{src_path.suffix}"
+            content = src_path.read_bytes() + f"-shuffle-{index}".encode()
+            out_path.write_bytes(content)
+            saved.append(out_path)
+        return saved
+
+    monkeypatch.setattr(augmentation_service.shuffle, "augment", fake_augment)
 
 
 def test_health_and_openapi_are_available(db: PostgresDatabase) -> None:
@@ -108,9 +169,10 @@ def test_create_project_rejects_missing_path(
     assert_error(response, "PATH_NOT_FOUND")
 
 
-def test_start_task_copies_images_and_returns_result(
-    tmp_path: Path, db: PostgresDatabase
+def test_start_task_shuffles_images_and_returns_result(
+    tmp_path: Path, db: PostgresDatabase, monkeypatch
 ) -> None:
+    patch_shuffle_runner(monkeypatch)
     source = create_image_folder(tmp_path)
     with make_client(db) as client:
         project = create_project(client, source)
@@ -120,7 +182,7 @@ def test_start_task_copies_images_and_returns_result(
             json={
                 "workerCount": 2,
                 "runOcrLabeling": True,
-                "variantsPerImage": 1,
+                "variantsPerImage": 3,
                 "outputFolderName": "dataset-augmented",
             },
         )
@@ -136,14 +198,14 @@ def test_start_task_copies_images_and_returns_result(
         assert task["progress"] == 100
         assert task["processedCount"] == 2
         assert task["failedCount"] == 0
-        assert task["generatedImageCount"] == 2
+        assert task["generatedImageCount"] == 6
         assert Path(task["outputFolderPath"]).is_dir()
-        assert (
-            tmp_path / "dataset-augmented" / "001.jpg"
-        ).read_bytes() == b"jpg-data"
-        assert (
-            tmp_path / "dataset-augmented" / "nested" / "002.png"
-        ).read_bytes() == b"png-data"
+        assert (tmp_path / "dataset-augmented" / "001_1.jpg").exists()
+        assert (tmp_path / "dataset-augmented" / "001_2.jpg").exists()
+        assert (tmp_path / "dataset-augmented" / "001_3.jpg").exists()
+        assert (tmp_path / "dataset-augmented" / "nested" / "002_1.png").exists()
+        assert (tmp_path / "dataset-augmented" / "nested" / "002_2.png").exists()
+        assert (tmp_path / "dataset-augmented" / "nested" / "002_3.png").exists()
 
         result_response = client.get(
             f"/api/augmentation-tasks/{task['id']}/result"
@@ -155,12 +217,85 @@ def test_start_task_copies_images_and_returns_result(
             "totalImageCount": 2,
             "successCount": 2,
             "failedCount": 0,
-            "variantsPerImage": 1,
-            "generatedImageCount": 2,
+            "variantsPerImage": 3,
+            "generatedImageCount": 6,
             "runOcrLabeling": True,
             "outputFolderPath": str(tmp_path / "dataset-augmented"),
             "completedAt": task["completedAt"],
         }
+
+
+def test_start_task_counts_per_image_shuffle_failures(
+    tmp_path: Path, db: PostgresDatabase, monkeypatch
+) -> None:
+    patch_shuffle_runner(monkeypatch, failed_filenames={"002.png"})
+    source = create_image_folder(tmp_path)
+    with make_client(db) as client:
+        project = create_project(client, source)
+
+        response = client.post(
+            f"/api/projects/{project['id']}/augmentation-tasks",
+            json={
+                "workerCount": 2,
+                "runOcrLabeling": False,
+                "variantsPerImage": 3,
+                "outputFolderName": "dataset-augmented",
+            },
+        )
+
+        assert response.status_code == 201
+        created_task = response.json()
+        task_response = client.get(
+            f"/api/augmentation-tasks/{created_task['id']}"
+        )
+        assert task_response.status_code == 200
+        task = task_response.json()
+        assert task["status"] == "DONE"
+        assert task["progress"] == 100
+        assert task["processedCount"] == 2
+        assert task["failedCount"] == 1
+        assert task["generatedImageCount"] == 3
+
+        result_response = client.get(
+            f"/api/augmentation-tasks/{task['id']}/result"
+        )
+        assert result_response.status_code == 200
+        result = result_response.json()
+        assert result["successCount"] == 1
+        assert result["failedCount"] == 1
+        assert result["generatedImageCount"] == 3
+        assert result["runOcrLabeling"] is False
+
+
+def test_reader_initialization_failure_marks_task_failed(
+    tmp_path: Path, db: PostgresDatabase, monkeypatch
+) -> None:
+    patch_shuffle_runner(monkeypatch, prepare_error=RuntimeError("model missing"))
+    source = create_image_folder(tmp_path)
+    with make_client(db) as client:
+        project = create_project(client, source)
+
+        response = client.post(
+            f"/api/projects/{project['id']}/augmentation-tasks",
+            json={
+                "workerCount": 1,
+                "runOcrLabeling": False,
+                "variantsPerImage": 3,
+                "outputFolderName": "dataset-augmented",
+            },
+        )
+
+        assert response.status_code == 201
+        created_task = response.json()
+        task_response = client.get(
+            f"/api/augmentation-tasks/{created_task['id']}"
+        )
+        assert task_response.status_code == 200
+        task = task_response.json()
+        assert task["status"] == "FAILED"
+        assert task["processedCount"] == 0
+        assert task["failedCount"] == 0
+        assert task["generatedImageCount"] == 0
 
 
 def test_active_task_blocks_second_task_and_result_until_finished(

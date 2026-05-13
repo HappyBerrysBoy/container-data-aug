@@ -301,6 +301,7 @@ def augment(
     *,
     randomize: bool = True,
     seed: int | None = None,
+    debug: bool = False,
 ) -> list[Path]:
     """ISO 6346 Part0×Part1 글자 쌍 스왑 조합으로 증강 이미지 생성.
 
@@ -340,9 +341,10 @@ def augment(
     global_mask = _make_global_mask(image)
     components = _extract_char_components(global_mask, chars)
     cleared = _make_cleared_image(image, global_mask, skip_idx, chars)
-    _save_otsu_debug(global_mask)
-    _save_craft_on_otsu_debug(global_mask, chars)
-    _save_cleared_debug(cleared)
+    if debug:
+        _save_otsu_debug(global_mask)
+        _save_craft_on_otsu_debug(global_mask, chars)
+        _save_cleared_debug(cleared)
 
     saved: list[Path] = []
     n = len(chars)

@@ -49,11 +49,11 @@ The file is generated at runtime and stores project metadata, augmentation task 
 - `POST /api/augmentation-tasks/{taskId}/stop`
 - `GET /api/augmentation-tasks/{taskId}/result`
 
-The augmentation task currently creates the output folder and copies source images while preserving relative paths. Real augmentation and OCR are deferred.
+The augmentation task runs the shuffle augmentation pipeline for every scanned image while preserving relative output paths. `variantsPerImage` controls how many shuffled images are generated per source image. `runOcrLabeling` is stored for API compatibility but does not currently change runner behavior.
 
 ## GLM-OCR Runtime
 
-The shuffle augmentation module can run CRAFT bbox detection with Hugging Face Transformers GLM-OCR for per-character recognition. Install the optional runtime before using the real model:
+The shuffle runner uses CRAFT bbox detection with Hugging Face Transformers GLM-OCR for per-character recognition. Install the optional runtime before using the real model:
 
 ```bash
 uv sync --extra cuda
