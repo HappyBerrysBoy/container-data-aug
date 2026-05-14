@@ -143,7 +143,7 @@ function ModelRow({ name, description, status }: ModelRowProps) {
         {status === "done"
           ? "완료"
           : status === "running"
-            ? "다운로드 중"
+            ? "fetching"
             : "대기"}
       </p>
     </div>
