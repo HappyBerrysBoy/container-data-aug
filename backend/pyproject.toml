@@ -3,14 +3,32 @@ name = "backend"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi[standard]>=0.136.1",
     "psycopg[binary]>=3.3.3",
+    "pillow>=10.0.0",
+    "numpy>=1.26.0",
+    "craft-text-detector>=0.4.2",
+]
+
+[project.optional-dependencies]
+cuda = [
+    "accelerate>=1.0.0",
     "torch==2.10.0",
     "torchaudio==2.10.0",
     "torchvision==0.25.0",
+    "transformers>=4.50.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
+
+[tool.uv]
+override-dependencies = ["opencv-python>=4.8.0"]
+index-strategy = "unsafe-best-match"
 
 [[tool.uv.index]]
 url = "https://download.pytorch.org/whl/cu126"

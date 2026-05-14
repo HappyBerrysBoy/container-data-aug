@@ -11,9 +11,11 @@
 ### 포함
 
 - 로컬 폴더 경로 기반 프로젝트 생성
+- 로컬 폴더 선택/열기 보조 API
 - 프로젝트 목록 조회
 - 프로젝트 상세 조회
 - 프로젝트 삭제
+- 프로젝트 폴더 재스캔 (이미지 개수/용량/라벨 여부 갱신)
 - 증강 작업 시작
 - 실행 중인 증강 작업 조회
 - 증강 작업 상태 polling
@@ -36,16 +38,32 @@
 ## 3. MVP 핵심 정책
 
 - 백엔드는 로컬에서 실행되는 FastAPI 서버다.
-- 프론트엔드는 로컬 폴더 절대경로를 백엔드에 전달한다.
+- 프로젝트 생성 화면은 백엔드의 로컬 폴더 선택 보조 API로 OS 폴더 선택 창을 열고, 선택된 절대경로를 `POST /api/projects`에 전달한다.
+- 사용자가 프로젝트 생성 화면에서 원본 폴더 경로를 직접 입력하는 UI는 제공하지 않는다.
+- 프로젝트 생성 화면의 `targetSpec`은 드롭다운으로 선택하며, 현재 선택지는 `ISO 6346` 하나만 제공한다.
 - 백엔드는 전달받은 폴더를 스캔해 프로젝트 메타데이터를 생성한다.
+- 결과 화면의 저장 폴더 확인 액션은 경로 텍스트를 별도 안내로 노출하지 않고 백엔드 보조 API로 OS 파일 탐색기를 연다.
 - v1 MVP에서는 모든 절대경로를 허용한다.
 - 증강 결과물은 로컬 출력 폴더에 저장한다.
 - 동시에 실행 가능한 증강 작업은 전역 1개다.
 - 프론트엔드는 1초 간격 polling으로 작업 상태를 조회한다.
-- MVP 증강 옵션은 아래 3개만 지원한다:
+- MVP 증강 옵션은 아래 4개만 지원한다:
   - `workerCount`
   - `runOcrLabeling`
+  - `variantsPerImage`
   - `outputFolderName`
+- 프론트엔드 옵션 모달은 `workerCount`, `variantsPerImage`, `outputFolderName`만 노출한다.
+- 프론트엔드는 현재 `runOcrLabeling`을 사용자에게 선택받지 않고 `true`로 고정 전송한다.
+- `workerCount`를 생략하면 기본값은 `1`이다.
+- `workerCount` 값은 작업 옵션으로 저장/응답하지만, MVP runner는 실제로 항상 단일 실행 흐름으로 처리한다.
+- 실제 증강 구현에서는 하나의 원본 이미지에서 여러 개의 증강 결과물을 생성할 수 있으며, 원본 이미지 1장당 생성할 결과물 수는 `variantsPerImage`로 설정한다.
+- 현재 runner는 CRAFT/GLM-OCR로 문자를 인식한 뒤 셔플 증강을 수행하며, 정상 처리된 원본 이미지마다 최대 `variantsPerImage`개의 결과 파일을 생성한다.
+- `runOcrLabeling`은 API 호환을 위해 저장하지만 현재 runner 실행 여부를 제어하지 않는다. 셔플은 항상 시도한다.
+- `variantsPerImage`는 `1` 이상 `90` 이하 범위로 제한한다. 범위 밖은 `422 VALIDATION_ERROR`를 반환한다.
+- 프론트엔드 옵션 모달은 `variantsPerImage`를 `1~90` 범위로 자동 클램프하여 입력한다.
+- `variantsPerImage`를 생략하면 기본값은 `1`이다.
+- 프로젝트 생성 후 원본 폴더의 이미지가 추가/삭제되면 `POST /api/projects/{projectId}/rescan`으로 메타데이터를 갱신할 수 있다. 다른 메타데이터(`title`, `sourceFolderPath` 등)는 보존된다.
+- 단, 해당 프로젝트에 `PENDING` 또는 `RUNNING` 작업이 있으면 프로젝트 삭제와 재스캔은 `409 PROJECT_HAS_ACTIVE_TASK`로 거부한다.
 
 ## 4. 공통 규약
 
@@ -84,7 +102,12 @@
 | `PATH_NOT_FOUND` | `422` | 로컬 경로가 존재하지 않음 |
 | `PATH_NOT_READABLE` | `422` | 로컬 경로 읽기 권한 없음 |
 | `PATH_NOT_WRITABLE` | `422` | 출력 경로 쓰기 권한 없음 |
+| `FOLDER_DIALOG_UNAVAILABLE` | `500` | OS 폴더 선택 창을 사용할 수 없음 |
+| `FOLDER_DIALOG_FAILED` | `500` | OS 폴더 선택 창 실행 실패 |
+| `FOLDER_OPEN_FAILED` | `500` | OS 파일 탐색기 열기 실패 |
+| `MODEL_PREPARATION_FAILED` | `500` | CRAFT/GLM-OCR 런타임 모델 준비 실패 |
 | `TASK_ALREADY_RUNNING` | `409` | 이미 실행 중인 전역 작업 존재 |
+| `PROJECT_HAS_ACTIVE_TASK` | `409` | 프로젝트에 실행 중이거나 대기 중인 작업 존재 |
 | `TASK_NOT_RUNNING` | `409` | 중단할 수 없는 작업 상태 |
 | `TASK_NOT_FINISHED` | `409` | 결과 조회 가능한 상태가 아님 |
 | `INTERNAL_SERVER_ERROR` | `500` | 서버 내부 오류 |
@@ -147,6 +170,7 @@ MVP에서는 별도 `AugmentationConfig` 테이블을 만들지 않고 작업 ro
   "progress": 45,
   "workerCount": 4,
   "runOcrLabeling": true,
+  "variantsPerImage": 3,
   "processedCount": 67,
   "failedCount": 2,
   "totalImageCount": 148,
@@ -164,8 +188,9 @@ MVP에서는 별도 `AugmentationConfig` 테이블을 만들지 않고 작업 ro
 | `projectId` | number | yes | 프로젝트 ID |
 | `status` | string | yes | `PENDING`, `RUNNING`, `STOPPED`, `FAILED`, `DONE` |
 | `progress` | number | yes | 0~100 진행률 |
-| `workerCount` | number | yes | 워커 수 |
-| `runOcrLabeling` | boolean | yes | OCR 라벨링 수행 여부 |
+| `workerCount` | number | yes | 요청된 워커 수. MVP runner의 실제 병렬도는 항상 1 |
+| `runOcrLabeling` | boolean | yes | 호환용 저장 필드. 현재 runner 실행 여부를 제어하지 않음 |
+| `variantsPerImage` | number | yes | 원본 이미지 1장당 생성할 증강 결과물 수 옵션 |
 | `processedCount` | number | yes | 처리된 이미지 수 |
 | `failedCount` | number | yes | 실패한 이미지 수 |
 | `totalImageCount` | number | yes | 전체 대상 이미지 수 |
@@ -182,11 +207,20 @@ MVP에서는 별도 `AugmentationConfig` 테이블을 만들지 않고 작업 ro
   "totalImageCount": 148,
   "successCount": 142,
   "failedCount": 6,
+  "variantsPerImage": 3,
+  "generatedImageCount": 142,
   "runOcrLabeling": true,
   "outputFolderPath": "/Users/name/datasets/container-images-augmented",
   "completedAt": "2026-05-05T08:20:00Z"
 }
 ```
+
+결과 집계 기준:
+
+- `totalImageCount`, `successCount`, `failedCount`는 원본 이미지 기준 count다.
+- `generatedImageCount`는 실제 생성된 증강 결과 이미지 파일 수다.
+- 실제 증강 구현에서는 정상 처리된 원본 이미지마다 `variantsPerImage`개의 결과물이 생성되는 것이 기본 동작이다.
+- 현재 shuffle runner에서는 정상 처리된 원본 이미지마다 실제 저장된 셔플 결과 파일 수가 `generatedImageCount`에 누적된다.
 
 ## 7. MVP Endpoints
 
@@ -292,10 +326,125 @@ MVP 정책:
 - 실제 원본 이미지 파일은 삭제하지 않는다.
 - 증강 결과 폴더도 삭제하지 않는다.
 - DB 또는 로컬 저장소의 프로젝트 메타데이터만 삭제한다.
+- 해당 프로젝트에 `PENDING` 또는 `RUNNING` 작업이 있으면 `409 PROJECT_HAS_ACTIVE_TASK`를 반환한다.
 
 Response `204`: body 없음
 
-## 7.3 Augmentation Tasks
+### POST `/api/projects/{projectId}/rescan`
+
+저장된 `sourceFolderPath`를 다시 스캔하여 프로젝트의 이미지 메타데이터를 갱신한다. 사용자가 원본 폴더에 이미지를 추가/삭제한 후 프로젝트를 새로 만들지 않고 카운트만 갱신하고 싶을 때 호출한다.
+
+요청 body 없음.
+
+동작:
+
+- 갱신 대상 필드: `fileCount`, `totalSizeBytes`, `hasLabels`
+- 보존 필드: `id`, `title`, `description`, `sourceFolderPath`, `targetSpec`, `createdAt`
+- 연관된 `tasks` 행은 변경하지 않는다 (latestTask는 별도 조회).
+
+검증:
+
+- `projectId`가 존재해야 한다. 없으면 `404 PROJECT_NOT_FOUND`.
+- 해당 프로젝트에 `PENDING` 또는 `RUNNING` 작업이 없어야 한다. 있으면 `409 PROJECT_HAS_ACTIVE_TASK`.
+- 저장된 `sourceFolderPath`가 여전히 디렉터리여야 한다. 없으면 `422 PATH_NOT_FOUND`.
+- 백엔드 프로세스가 `sourceFolderPath`를 읽을 수 있어야 한다. 없으면 `422 PATH_NOT_READABLE`.
+
+Response `200`: 갱신된 `Project`
+
+## 7.3 Local Folders
+
+로컬 개발/운영 환경에서 브라우저 UI가 OS 파일 탐색기와 연동되도록 돕는 보조 API다. 프로젝트/작업 DB 모델에는 새 필드를 추가하지 않는다.
+
+### POST `/api/local-folders/select`
+
+백엔드가 실행 중인 머신에서 OS 폴더 선택 창을 열고, 사용자가 선택한 폴더의 절대경로를 반환한다.
+
+Request body 없음.
+
+Response `200`:
+
+```json
+{
+  "path": "/Users/name/datasets/container-images"
+}
+```
+
+사용자가 선택을 취소하면 `path`는 `null`이다.
+
+```json
+{
+  "path": null
+}
+```
+
+에러:
+
+- OS 폴더 선택 창을 사용할 수 없으면 `500 FOLDER_DIALOG_UNAVAILABLE`.
+- 폴더 선택 창 실행이 실패하면 `500 FOLDER_DIALOG_FAILED`.
+
+### POST `/api/local-folders/open`
+
+백엔드가 실행 중인 머신의 OS 파일 탐색기로 지정 폴더를 연다.
+
+Request:
+
+```json
+{
+  "path": "/Users/name/datasets/container-images-augmented"
+}
+```
+
+검증:
+
+- `path`는 존재하는 디렉터리여야 한다. 없으면 `422 PATH_NOT_FOUND`.
+
+Response `200`:
+
+```json
+{
+  "opened": true
+}
+```
+
+에러:
+
+- OS 파일 탐색기 실행이 실패하면 `500 FOLDER_OPEN_FAILED`.
+
+## 7.4 Runtime Models
+
+증강 task를 만들기 전에 CRAFT/GLM-OCR 초기 다운로드와 로드를 명시적으로 수행하기 위한 보조 API다. DB task 상태에는 새 값을 추가하지 않고, 프론트엔드는 이 API의 응답을 기다리는 동안 중앙 모델 준비 팝업을 표시한다.
+
+### POST `/api/runtime-models/craft/prepare`
+
+CRAFT text detection weight와 refiner weight를 준비한다. 이미 캐시되어 있으면 즉시 `READY`를 반환한다.
+
+Response `200`:
+
+```json
+{
+  "model": "craft",
+  "status": "READY"
+}
+```
+
+### POST `/api/runtime-models/glm/prepare`
+
+Hugging Face Transformers 기반 GLM-OCR processor/model을 준비한다. 이미 캐시되어 있으면 즉시 `READY`를 반환한다.
+
+Response `200`:
+
+```json
+{
+  "model": "glm",
+  "status": "READY"
+}
+```
+
+에러:
+
+- 모델 다운로드, 캐시 접근, 또는 런타임 초기화가 실패하면 `500 MODEL_PREPARATION_FAILED`.
+
+## 7.5 Augmentation Tasks
 
 ### POST `/api/projects/{projectId}/augmentation-tasks`
 
@@ -309,14 +458,17 @@ Request:
 {
   "workerCount": 4,
   "runOcrLabeling": true,
+  "variantsPerImage": 3,
   "outputFolderName": "container-images-augmented"
 }
 ```
 
 Validation:
 
-- `workerCount`는 1 이상이어야 한다.
+- `workerCount`를 생략하면 기본값은 `1`이다. 값을 보내면 1 이상이어야 한다.
+- `variantsPerImage`를 생략하면 기본값은 `1`이다. 값을 보내면 1 이상 90 이하여야 한다. 범위 밖은 `422 VALIDATION_ERROR`.
 - `outputFolderName`은 비어 있으면 안 된다.
+- `runOcrLabeling`은 호환용 저장 필드이며 현재 프론트엔드에서는 선택 UI를 제공하지 않고 `true`로 고정 전송한다.
 - 백엔드가 출력 폴더를 생성하거나 쓸 수 있어야 한다.
 
 Response `201`: `AugmentationTask`
@@ -336,6 +488,7 @@ Response `200` when active task exists:
     "progress": 45,
     "workerCount": 4,
     "runOcrLabeling": true,
+    "variantsPerImage": 3,
     "processedCount": 67,
     "failedCount": 2,
     "totalImageCount": 148,
@@ -397,17 +550,28 @@ Response `200`: `AugmentationResult`
 
 ### 8.2 프로젝트 생성
 
-1. 사용자가 프로젝트 생성 화면에서 로컬 폴더 경로, 이름, 설명을 입력한다.
-2. 프론트엔드가 `POST /api/projects`를 호출한다.
-3. 백엔드는 폴더를 스캔하고 프로젝트를 생성한다.
-4. 프론트엔드는 응답을 사이드바 목록과 프로젝트 상세 화면에 반영한다.
+1. 사용자가 프로젝트 생성 화면에서 `폴더 선택` 버튼을 누른다.
+2. 프론트엔드가 `POST /api/local-folders/select`를 호출하고, 백엔드는 OS 폴더 선택 창을 연다.
+3. 사용자가 폴더를 선택하면 프론트엔드는 선택된 절대경로를 화면에 표시하고, 이름과 설명을 입력받는다. 타겟 규격은 `ISO 6346` 단일 옵션 드롭다운으로 선택한다.
+4. 프론트엔드가 선택된 `sourceFolderPath`로 `POST /api/projects`를 호출한다.
+5. 백엔드는 폴더를 스캔하고 프로젝트를 생성한다.
+6. 프론트엔드는 응답을 사이드바 목록과 프로젝트 상세 화면에 반영한다.
+
+### 8.2.1 프로젝트 폴더 재스캔
+
+1. 사용자가 프로젝트 상세 화면의 `폴더 다시 스캔` 버튼을 누른다.
+2. 프론트엔드가 `POST /api/projects/{projectId}/rescan`을 호출한다.
+3. 백엔드는 저장된 `sourceFolderPath`를 다시 스캔하고 프로젝트 메타데이터를 갱신한다.
+4. 프론트엔드는 응답으로 사이드바 목록과 상세 화면의 카운트/용량을 갱신한다. `latestTask`는 보존된다.
 
 ### 8.3 증강 시작
 
 1. 사용자가 프로젝트 상세에서 `증강 프로세스 시작`을 누른다.
-2. 옵션 모달에서 `workerCount`, `runOcrLabeling`, `outputFolderName`을 입력한다.
-3. 프론트엔드가 `POST /api/projects/{projectId}/augmentation-tasks`를 호출한다.
-4. 성공하면 task ID를 저장하고 증강 수행 화면으로 이동한다.
+2. 옵션 모달에서 `workerCount`, `variantsPerImage`, `outputFolderName`을 입력한다. 프론트엔드는 `runOcrLabeling: true`를 함께 전송한다. `workerCount`와 `variantsPerImage`를 생략하면 기본값은 각각 `1`이다.
+3. 프론트엔드는 중앙 모델 준비 팝업을 띄우고 `POST /api/runtime-models/craft/prepare`, `POST /api/runtime-models/glm/prepare`를 순서대로 호출한다.
+4. 각 모델 준비 중에는 spinner를, 완료 시에는 check 표시를 보여준다. 두 모델이 모두 `READY`이면 약 1초 뒤 팝업을 닫는다.
+5. 프론트엔드가 `POST /api/projects/{projectId}/augmentation-tasks`를 호출한다.
+6. 성공하면 task ID를 저장하고 증강 수행 화면으로 이동한다.
 
 ### 8.4 진행 polling
 
@@ -419,8 +583,9 @@ Response `200`: `AugmentationResult`
 ### 8.5 결과 표시
 
 1. 프론트엔드가 `AugmentationResult`를 표시한다.
-2. `outputFolderPath`를 저장 폴더 경로로 보여준다.
-3. MVP에서는 브라우저가 OS 폴더를 직접 열지 않는다.
+2. `generatedImageCount`를 실제 생성된 증강 결과물 수로 보여준다.
+3. 사용자가 `저장 폴더 위치 확인`을 누르면 프론트엔드가 `POST /api/local-folders/open`에 `outputFolderPath`를 전달하고, 백엔드가 OS 파일 탐색기로 결과 폴더를 연다.
+4. 결과 화면은 저장 폴더 경로를 별도 안내 문구로 노출하지 않는다.
 
 ## 9. MVP 구현 순서
 
@@ -438,31 +603,39 @@ Response `200`: `AugmentationResult`
    - `POST /api/projects`
    - `GET /api/projects/{projectId}`
    - `DELETE /api/projects/{projectId}`
+   - `POST /api/projects/{projectId}/rescan`
 5. 증강 작업 API 구현
    - 전역 작업 lock
+   - `POST /api/runtime-models/craft/prepare`
+   - `POST /api/runtime-models/glm/prepare`
    - `POST /api/projects/{projectId}/augmentation-tasks`
    - `GET /api/augmentation-tasks/active`
    - `GET /api/augmentation-tasks/{taskId}`
    - `POST /api/augmentation-tasks/{taskId}/stop`
    - `GET /api/augmentation-tasks/{taskId}/result`
 6. 최소 증강 처리 구현
-   - MVP 첫 구현은 원본 이미지 복사와 출력 폴더 생성만으로 시작 가능
-   - 이후 실제 augmentation/OCR 처리로 교체
+   - 현재 구현은 CRAFT/GLM-OCR 기반 문자 인식 후 셔플 증강 이미지를 생성한다.
+   - 개별 이미지 인식/셔플 실패는 해당 이미지 실패로 집계하고 다음 이미지를 계속 처리한다.
 7. 프론트엔드 더미 상태 제거
    - 프로젝트 생성/목록/상세 API 연동
    - 작업 시작/진행 polling/결과 API 연동
+   - 로컬 폴더 선택/열기 보조 API 연동
 
 ## 10. MVP 검증 기준
 
-- 존재하는 로컬 이미지 폴더 경로로 프로젝트를 생성할 수 있다.
+- OS 폴더 선택 창에서 선택한 로컬 이미지 폴더 경로로 프로젝트를 생성할 수 있다.
 - 앱 초기 실행 시 기존 프로젝트 목록을 불러와 사이드바에 표시할 수 있다.
 - 프로젝트 목록과 상세 조회가 동작한다.
 - 프로젝트 상세에서 증강 작업을 시작할 수 있다.
 - 실행 중 작업이 있을 때 새 작업 시작은 `409 TASK_ALREADY_RUNNING`을 반환한다.
 - 프론트엔드 polling으로 진행률이 갱신된다.
-- 작업 완료 후 결과 화면에서 전체/성공/실패 수와 출력 폴더 경로를 볼 수 있다.
+- 작업 완료 후 결과 화면에서 전체/성공/실패 수를 볼 수 있고, 저장 폴더 확인 버튼으로 OS 파일 탐색기에서 출력 폴더를 열 수 있다.
+- `variantsPerImage`를 2 이상으로 설정하면 정상 처리된 원본 이미지마다 해당 개수만큼 셔플 결과 생성을 시도하고, 실제 생성 파일 수가 `generatedImageCount`에 반영된다.
+- `variantsPerImage`에 `91` 이상 또는 `0` 이하 값을 보내면 `422 VALIDATION_ERROR`를 반환한다.
 - 작업 중단 시 상태가 `STOPPED`가 된다.
 - 원본 이미지 파일은 프로젝트 삭제로 삭제되지 않는다.
+- active task가 있는 프로젝트를 삭제하거나 재스캔하면 `409 PROJECT_HAS_ACTIVE_TASK`를 반환한다.
+- 원본 폴더에 이미지를 추가/삭제한 뒤 `POST /api/projects/{projectId}/rescan`을 호출하면 `fileCount`/`totalSizeBytes`/`hasLabels`가 갱신되고 다른 메타데이터는 보존된다.
 
 ## 11. 다음 단계로 미룰 기능
 

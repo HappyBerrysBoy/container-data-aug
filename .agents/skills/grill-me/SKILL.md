@@ -8,3 +8,5 @@ Interview me relentlessly about every aspect of this plan until we reach a share
 Ask the questions one at a time.
 
 If a question can be answered by exploring the codebase, explore the codebase instead.
+
+After the interview is complete, always ask whether the user would like to save the discussion as a Markdown document summarizing the questions and answers.

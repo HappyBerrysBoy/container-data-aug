@@ -5,27 +5,47 @@ import {
   FolderOpen,
   ImageIcon,
   RotateCcw,
-  Tags,
   XCircle,
 } from "lucide-react"
 import { useState, type ReactNode } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import type { AugmentationResult, ProjectSummary } from "@/types/project"
+import { ApiError, localFolders } from "@/lib/api"
+import { formatDateShort, pathBasename } from "@/lib/format"
+import type { AugmentationResult, Project } from "@/types/project"
 
 type AugmentationResultViewProps = {
-  project: ProjectSummary
+  project: Project
   result: AugmentationResult
   onBackToDetail: () => void
 }
 
+/**
+ * Final summary shown after a task transitions to DONE. Source data comes
+ * from `GET /api/augmentation-tasks/{id}/result` (see AppShell polling loop).
+ */
 export function AugmentationResultView({
   project,
   result,
   onBackToDetail,
 }: AugmentationResultViewProps) {
-  const [showFolderNotice, setShowFolderNotice] = useState(false)
+  const [isOpeningFolder, setIsOpeningFolder] = useState(false)
+  const [folderOpenError, setFolderOpenError] = useState<string | null>(null)
+  const folderName = pathBasename(project.sourceFolderPath) || project.title
+
+  async function openOutputFolder() {
+    if (isOpeningFolder) return
+    setIsOpeningFolder(true)
+    setFolderOpenError(null)
+    try {
+      await localFolders.open(result.outputFolderPath)
+    } catch (error) {
+      setFolderOpenError(describeOpenFolderError(error))
+    } finally {
+      setIsOpeningFolder(false)
+    }
+  }
 
   return (
     <section className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-6 py-10 md:px-10">
@@ -34,10 +54,10 @@ export function AugmentationResultView({
           결과 시각화
         </p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-          {project.name}
+          {project.title}
         </h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-          더미 증강 작업의 처리 결과를 요약합니다.
+          백엔드가 보고한 증강 작업 결과를 요약합니다.
         </p>
       </div>
 
@@ -48,9 +68,11 @@ export function AugmentationResultView({
               <CheckCircle2 className="size-5" aria-hidden="true" />
             </div>
             <div>
-              <p className="text-sm font-semibold">증강 작업 완료</p>
+              <p className="text-sm font-semibold">
+                Task #{result.taskId} 완료
+              </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {project.folderName}
+                {folderName} · {formatDateShort(result.completedAt)}
               </p>
             </div>
           </div>
@@ -58,10 +80,15 @@ export function AugmentationResultView({
             <Button
               type="button"
               variant="outline"
-              onClick={() => setShowFolderNotice(true)}
+              onClick={openOutputFolder}
+              disabled={isOpeningFolder}
             >
-              <FolderOpen className="size-4" aria-hidden="true" />
-              저장 폴더 열기
+              {isOpeningFolder ? (
+                <RotateCcw className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <FolderOpen className="size-4" aria-hidden="true" />
+              )}
+              저장 폴더 위치 확인
             </Button>
             <Button type="button" onClick={onBackToDetail}>
               <RotateCcw className="size-4" aria-hidden="true" />
@@ -70,14 +97,14 @@ export function AugmentationResultView({
           </div>
         </div>
 
-        {showFolderNotice && (
-          <div className="mx-5 rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">
-            실제 폴더 열기는 아직 연결되지 않았습니다. 목업 저장 위치:{" "}
-            <span className="font-medium text-foreground">
-              {result.outputFolderLabel}
-            </span>
+        {folderOpenError ? (
+          <div
+            role="alert"
+            className="mx-5 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900"
+          >
+            {folderOpenError}
           </div>
-        )}
+        ) : null}
 
         <Separator />
 
@@ -98,21 +125,16 @@ export function AugmentationResultView({
             value={`${result.failedCount.toLocaleString("ko-KR")}개`}
           />
         </div>
-
-        <div className="px-5 pb-5">
-          <div className="rounded-lg border bg-muted/20 p-4">
-            <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-              <Tags className="size-4" aria-hidden="true" />
-              <span>라벨링 적용 여부</span>
-            </div>
-            <p className="text-sm font-semibold">
-              {result.runOcrLabeling ? "OCR 라벨링 적용" : "OCR 라벨링 미적용"}
-            </p>
-          </div>
-        </div>
       </div>
     </section>
   )
+}
+
+function describeOpenFolderError(error: unknown): string {
+  if (error instanceof ApiError) {
+    return `${error.code}: ${error.message}`
+  }
+  return "결과 폴더를 열지 못했습니다. 백엔드가 실행 중인지 확인해 주세요."
 }
 
 function ResultMetric({

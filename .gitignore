@@ -130,6 +130,9 @@ coverage.xml
 .pdm-python
 __pypackages__/
 
+# Backend runtime state (DB is now the source of truth)
+backend/data/
+
 # =========================
 # Docker
 # =========================
